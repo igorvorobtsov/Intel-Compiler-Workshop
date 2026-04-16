@@ -62,11 +62,10 @@ if [ $# -eq 0 ]; then
     echo "Available exercises:"
     echo "  1 - Warning levels and Fortran-specific warnings"
     echo "  2 - Standard conformance checking (-stand)"
-    echo "  3 - Uninitialized variable detection (-ftrapuv, -init=snan)"
-    echo "  4 - Integer overflow detection (-ftrapv limitation)"
-    echo "  5 - Runtime bounds checking (-check bounds)"
-    echo "  6 - Floating point exception handling (-fpe0)"
-    echo "  7 - Comprehensive runtime checking (-check all)"
+    echo "  3 - Automatic reallocation (-assume realloc_lhs)"
+    echo "  4 - Floating point exception handling (-fpe0)"
+    echo "  5 - Uninitialized variable detection (-ftrapuv, -init=snan)"
+    echo "  6 - Runtime checking (bounds + comprehensive)"
     echo "  all - Run all exercises"
     exit 1
 fi
@@ -129,9 +128,65 @@ if [ "$EXERCISE" == "2" ] || [ "$EXERCISE" == "all" ]; then
     echo -e "Note: -stand does not change program behavior, only strictness of checking"
 fi
 
-# Exercise 3: Uninitialized variables
+# Exercise 3: Automatic reallocation (-assume)
 if [ "$EXERCISE" == "3" ] || [ "$EXERCISE" == "all" ]; then
-    print_header "Exercise 3: Uninitialized Variable Detection"
+    print_header "Exercise 3: Automatic Reallocation (-assume realloc_lhs)"
+
+    show_code "assume_realloc_lhs.f90" 4 6
+
+    setup_ifx
+
+    echo -e "${GREEN}=== Default (automatic reallocation enabled - F2003+) ===${NC}"
+    run_cmd "ifx assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs"
+    echo -e "${BLUE}Notice: Array automatically resized from 2 to 3 elements${NC}"
+    echo ""
+
+    echo -e "${GREEN}=== With -assume norealloc_lhs (disable auto realloc - F95 behavior) ===${NC}"
+    run_cmd "ifx -assume norealloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs"
+    echo -e "${RED}⚠️  Notice: Array stays size 2, third element silently truncated!${NC}"
+    echo -e "${RED}   This can cause silent data loss - dangerous!${NC}"
+    echo ""
+
+    echo -e "${GREEN}=== With -assume realloc_lhs (explicit enable) ===${NC}"
+    run_cmd "ifx -assume realloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs"
+    echo -e "${BLUE}Array automatically resized (same as default)${NC}"
+    echo ""
+
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}Key Learnings:${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "• ${GREEN}Default (IFX)${NC}: Automatic reallocation enabled (Fortran 2003+ standard)"
+    echo -e "• ${GREEN}-assume realloc_lhs${NC}: Explicitly enable auto reallocation (safe)"
+    echo -e "• ${RED}-assume norealloc_lhs${NC}: Disable auto reallocation (F95 legacy, dangerous)"
+    echo -e "• ${RED}Silent data loss${NC}: -assume norealloc_lhs truncates without warning"
+    echo -e "• ${GREEN}Best practice${NC}: Use default behavior (auto reallocation)"
+    echo -e "• Only use ${RED}-assume norealloc_lhs${NC} for legacy F95 code with thorough testing"
+    echo -e "• Many other ${GREEN}-assume${NC} options available: run ${GREEN}ifx --help | grep -A30 \"^-assume\"${NC}"
+fi
+# Exercise 4: Floating point exceptions
+if [ "$EXERCISE" == "4" ] || [ "$EXERCISE" == "all" ]; then
+    print_header "Exercise 4: Floating Point Exception Handling"
+
+    show_code "fpe.f90" 5 6
+
+    setup_ifx
+
+    echo -e "${GREEN}=== Default (no FP exception handling) ===${NC}"
+    run_cmd "ifx fpe.f90 -o fpe && ./fpe"
+
+    echo -e "${GREEN}=== With -fpe0 (catch FP exceptions) ===${NC}"
+    echo -e "${YELLOW}Command:${NC} ifx -fpe0 -traceback -g fpe.f90 -o fpe && ./fpe"
+    echo ""
+    ifx -fpe0 -traceback -g fpe.f90 -o fpe 2>&1 && ./fpe 2>&1 || echo -e "${RED}Floating point exception detected! Check traceback above.${NC}"
+    echo ""
+
+    echo -e "Note: -fpe0 enables all floating-point exception handling"
+    echo -e "Default is -fpe3 which disables all FP exceptions"
+fi
+
+# Exercise 5: Uninitialized variables
+if [ "$EXERCISE" == "5" ] || [ "$EXERCISE" == "all" ]; then
+    print_header "Exercise 5: Uninitialized Variable Detection"
 
     show_code "uninit.f90" 5 6
 
@@ -200,9 +255,9 @@ if [ "$EXERCISE" == "3" ] || [ "$EXERCISE" == "all" ]; then
     echo -e "• Always use ${GREEN}-O0${NC} (no optimization) with these flags"
 fi
 
-# Exercise 4: Runtime checking (bounds + comprehensive)
-if [ "$EXERCISE" == "4" ] || [ "$EXERCISE" == "all" ]; then
-    print_header "Exercise 4: Runtime Checking (Bounds and Comprehensive)"
+# Exercise 6: Runtime checking (bounds + comprehensive)
+if [ "$EXERCISE" == "6" ] || [ "$EXERCISE" == "all" ]; then
+    print_header "Exercise 6: Runtime Checking (Bounds and Comprehensive)"
 
     show_code "bounds_runtime.f90" 7 10
 
@@ -234,62 +289,6 @@ if [ "$EXERCISE" == "4" ] || [ "$EXERCISE" == "all" ]; then
     echo -e "${BLUE}Use during development, remove for production builds${NC}"
 fi
 
-# Exercise 5: Floating point exceptions
-if [ "$EXERCISE" == "5" ] || [ "$EXERCISE" == "all" ]; then
-    print_header "Exercise 5: Floating Point Exception Handling"
-
-    show_code "fpe.f90" 5 6
-
-    setup_ifx
-
-    echo -e "${GREEN}=== Default (no FP exception handling) ===${NC}"
-    run_cmd "ifx fpe.f90 -o fpe && ./fpe"
-
-    echo -e "${GREEN}=== With -fpe0 (catch FP exceptions) ===${NC}"
-    echo -e "${YELLOW}Command:${NC} ifx -fpe0 -traceback -g fpe.f90 -o fpe && ./fpe"
-    echo ""
-    ifx -fpe0 -traceback -g fpe.f90 -o fpe 2>&1 && ./fpe 2>&1 || echo -e "${RED}Floating point exception detected! Check traceback above.${NC}"
-    echo ""
-
-    echo -e "Note: -fpe0 enables all floating-point exception handling"
-    echo -e "Default is -fpe3 which disables all FP exceptions"
-fi
-
-# Exercise 6: Automatic reallocation (-assume)
-if [ "$EXERCISE" == "6" ] || [ "$EXERCISE" == "all" ]; then
-    print_header "Exercise 6: Automatic Reallocation (-assume realloc_lhs)"
-
-    show_code "assume_realloc_lhs.f90" 4 6
-
-    setup_ifx
-
-    echo -e "${GREEN}=== Default (automatic reallocation enabled - F2003+) ===${NC}"
-    run_cmd "ifx assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs"
-    echo -e "${BLUE}Notice: Array automatically resized from 2 to 3 elements${NC}"
-    echo ""
-
-    echo -e "${GREEN}=== With -assume norealloc_lhs (disable auto realloc - F95 behavior) ===${NC}"
-    run_cmd "ifx -assume norealloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs"
-    echo -e "${RED}⚠️  Notice: Array stays size 2, third element silently truncated!${NC}"
-    echo -e "${RED}   This can cause silent data loss - dangerous!${NC}"
-    echo ""
-
-    echo -e "${GREEN}=== With -assume realloc_lhs (explicit enable) ===${NC}"
-    run_cmd "ifx -assume realloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs"
-    echo -e "${BLUE}Array automatically resized (same as default)${NC}"
-    echo ""
-
-    echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}Key Learnings:${NC}"
-    echo -e "${BLUE}========================================${NC}"
-    echo -e "• ${GREEN}Default (IFX)${NC}: Automatic reallocation enabled (Fortran 2003+ standard)"
-    echo -e "• ${GREEN}-assume realloc_lhs${NC}: Explicitly enable auto reallocation (safe)"
-    echo -e "• ${RED}-assume norealloc_lhs${NC}: Disable auto reallocation (F95 legacy, dangerous)"
-    echo -e "• ${RED}Silent data loss${NC}: -assume norealloc_lhs truncates without warning"
-    echo -e "• ${GREEN}Best practice${NC}: Use default behavior (auto reallocation)"
-    echo -e "• Only use ${RED}-assume norealloc_lhs${NC} for legacy F95 code with thorough testing"
-    echo -e "• Many other ${GREEN}-assume${NC} options available: run ${GREEN}ifx -help assume${NC}"
-fi
 
 print_header "Exercise Complete!"
 echo -e "${GREEN}Check the output above to understand compiler debugging options.${NC}"

@@ -20,10 +20,10 @@ The lab includes these test programs:
 
 1. **warn.f90** - Unused variable warning
 2. **standard.f90** - Standard conformance issue
-3. **uninit.f90** - Uninitialized variable (undefined behavior)
-4. **bounds_runtime.f90** - Array bounds violation (runtime)
-5. **fpe.f90** - Floating-point exception (division by zero)
-6. **assume_realloc_lhs.f90** - Automatic reallocation behavior
+3. **assume_realloc_lhs.f90** - Automatic reallocation behavior
+4. **fpe.f90** - Floating-point exception (division by zero)
+5. **uninit.f90** - Uninitialized variable (undefined behavior)
+6. **bounds_runtime.f90** - Array bounds violation (runtime)
 
 ## Setup
 
@@ -248,7 +248,236 @@ compilation aborted for standard.f90 (code 1)
 - Does not change runtime behavior, only strictness of checking
 - Helps catch syntax errors and deprecated features
 
-## Exercise 3: Uninitialized Variable Detection
+## Exercise 3: Automatic Reallocation with `-assume realloc_lhs`
+
+### Goal
+Understand how `-assume realloc_lhs` controls automatic reallocation of allocatable arrays on assignment.
+
+### Code: assume_realloc_lhs.f90
+
+```fortran
+program assume_realloc_lhs
+   implicit none
+   integer, allocatable :: x(:)
+   allocate( x(2) )
+   print *, "Before assignment x(2): shape(x) = ", shape(x)
+   x = [ 1, 2, 3 ]
+   print *, "After assignment [1,2,3]: shape(x) = ", shape(x)
+end program assume_realloc_lhs
+```
+
+**Issue:** Allocatable array `x` is allocated with size 2, but we assign an array of size 3. What happens?
+
+### Tasks
+
+**3a. Default Behavior (Fortran 2003 Standard: Automatic Reallocation)**
+
+```bash
+ifx assume_realloc_lhs.f90 -o assume_realloc_lhs
+./assume_realloc_lhs
+```
+
+**Expected output:**
+```
+Before assignment x(2): shape(x) =            2
+After assignment [1,2,3]: shape(x) =            3
+```
+
+**Note:** By default, IFX follows the **Fortran 2003 standard** which requires automatic reallocation when an allocatable array on the left-hand side (LHS) of an assignment has a different shape than the right-hand side (RHS). The array is automatically deallocated and reallocated to match the RHS shape.
+
+**3b. Disable Automatic Reallocation (-assume norealloc_lhs)**
+
+```bash
+ifx -assume norealloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs
+./assume_realloc_lhs
+```
+
+**Expected output:**
+```
+Before assignment x(2): shape(x) =            2
+After assignment [1,2,3]: shape(x) =            2
+```
+
+**What happened:**
+- `-assume norealloc_lhs` disables automatic reallocation (Fortran 95 behavior)
+- The assignment tries to fit 3 elements into an array of size 2
+- Only the first 2 elements are copied, the 3rd element is silently ignored
+- **This is a potential bug!** No error, no warning, just wrong results
+
+**3c. Enable Automatic Reallocation Explicitly (-assume realloc_lhs)**
+
+```bash
+ifx -assume realloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs
+./assume_realloc_lhs
+```
+
+**Expected output:**
+```
+Before assignment x(2): shape(x) =            2
+After assignment [1,2,3]: shape(x) =            3
+```
+
+**Note:** `-assume realloc_lhs` explicitly enables automatic reallocation (default in IFX, Fortran 2003+ standard behavior).
+
+### Understanding `-assume` Options
+
+The `-assume` flag controls various runtime assumptions and behaviors:
+
+**Reallocation-related:**
+- **`-assume realloc_lhs`** - Enable automatic reallocation on assignment (default, F2003+)
+- **`-assume norealloc_lhs`** - Disable automatic reallocation (F95 behavior)
+
+**Other useful `-assume` options:**
+```bash
+# Byte order control
+-assume byterecl          # RECL in OPEN specifies bytes (not words)
+
+# Array bounds checking (alternative to -check bounds)
+-assume nobounds_check    # Disable bounds checking (default)
+
+# Buffering control
+-assume buffered_io       # Use buffered I/O (default)
+-assume nobuffered_io     # Disable buffering
+
+# Dummy argument checking
+-assume dummy_aliases     # Assume dummy arguments may alias (conservative)
+-assume nodummy_aliases   # Assume no aliasing (allows more optimization)
+
+# IEEE arithmetic
+-assume ieee_fpe_flags    # Save/restore IEEE FPE flags on entry/exit
+
+# Show all assume options
+ifx --help | grep -A30 "^-assume"
+```
+
+**Note:** Use `ifx --help` to see all compiler options, then search for `-assume` to see the full list of assume keywords.
+
+### Why This Matters
+
+**Fortran 2003+ Standard Behavior (automatic reallocation):**
+- ✅ **Safer**: Array always has correct size after assignment
+- ✅ **More convenient**: Don't need to manually reallocate
+- ⚠️ **Performance cost**: Reallocation involves deallocate + allocate + copy
+- ⚠️ **Memory overhead**: Temporary allocation during assignment
+
+**Legacy Fortran 95 Behavior (`-assume norealloc_lhs`):**
+- ⚠️ **Dangerous**: Silent truncation if RHS doesn't fit
+- ⚠️ **Hard to debug**: No error, wrong results
+- ✅ **Faster**: No reallocation overhead
+- ✅ **Predictable memory**: No hidden allocations
+
+**Real-world example where this matters:**
+```fortran
+! Reading variable-length data
+integer, allocatable :: buffer(:)
+allocate(buffer(100))
+
+! Later in code, read different sizes
+buffer = read_data_from_file(filename1)  ! Returns 150 elements
+! With realloc_lhs: buffer automatically resized to 150 ✅
+! With norealloc_lhs: only first 100 copied, data loss! ❌
+
+buffer = read_data_from_file(filename2)  ! Returns 50 elements  
+! With realloc_lhs: buffer resized to 50 ✅
+! With norealloc_lhs: only 50 elements updated, leftover data from before! ❌
+```
+
+### When to Use Each Option
+
+**Use default (`-assume realloc_lhs`):**
+- ✅ New code (Fortran 2003+)
+- ✅ When correctness is critical
+- ✅ When array sizes change dynamically
+- ✅ When you want standard-compliant behavior
+
+**Use `-assume norealloc_lhs` only if:**
+- ⚠️ Porting legacy Fortran 95 code that depends on old behavior
+- ⚠️ Performance-critical loop where reallocation overhead is measured and significant
+- ⚠️ You have verified all assignments have matching shapes
+- ⚠️ You understand the risks and have thorough testing
+
+### Key Takeaways
+
+- **Default (IFX)**: Automatic reallocation enabled (Fortran 2003+ standard)
+- **`-assume realloc_lhs`**: Explicitly enable automatic reallocation (safe, standard-compliant)
+- **`-assume norealloc_lhs`**: Disable automatic reallocation (dangerous, legacy F95 behavior)
+- **Silent data loss**: `-assume norealloc_lhs` can truncate data without warning
+- **Performance trade-off**: Automatic reallocation is safer but slower
+- **Best practice**: Use default behavior unless you have a specific reason and thorough testing
+- **Legacy code**: May need `-assume norealloc_lhs` for exact F95 behavior
+- **Many other options**: Use `ifx --help | grep -A30 "^-assume"` to see all assume keywords
+
+## Exercise 4: Floating Point Exception Handling
+
+### Goal
+Detect floating-point errors like division by zero, overflow, underflow.
+
+### Code: fpe.f90
+
+```fortran
+program fpe
+    implicit none
+    real :: a, b
+    
+    b = 3.0
+    a = b / 0.0    ! Division by zero
+    
+    print *, a
+end program fpe
+```
+
+**Bug:** Division by zero produces Inf by default (no error).
+
+### Tasks
+
+**4a. Default Build (No FP Exception Handling)**
+
+```bash
+ifx fpe.f90 -o fpe
+./fpe
+```
+
+**Expected:** Prints `Infinity` or `Inf`. No error.
+
+**Note:** By default, IFX uses `-fpe3` which disables all floating-point exception handling. Division by zero produces Inf, not an error.
+
+**4b. Enable FP Exception Handling (-fpe0)**
+
+```bash
+ifx -fpe0 -traceback -g fpe.f90 -o fpe
+./fpe
+```
+
+**Expected:** Runtime error at the division by zero.
+
+```
+forrtl: error (65): floating divide by zero
+Image              PC                Routine            Line        Source
+fpe                0000000000402D87  MAIN__                  6  fpe.f90
+...
+```
+
+**Note:** `-fpe0` enables all floating-point exception handling:
+- Division by zero
+- Overflow
+- Invalid operation (e.g., sqrt of negative number)
+
+### FP Exception Levels
+
+- **-fpe0** - Enable all FP exception handling (invalid, divide-by-zero, overflow)
+- **-fpe1** - Enable invalid and divide-by-zero only
+- **-fpe3** - Disable all FP exception handling (default)
+
+### Key Takeaways
+
+- **-fpe0** catches floating-point errors at runtime
+- Default is **-fpe3** (all FP exceptions disabled)
+- Catches division by zero, overflow, invalid operations
+- Performance impact: minimal
+- Recommended for scientific computing where NaN/Inf indicate errors
+- Use during development to catch numerical issues early
+
+## Exercise 5: Uninitialized Variable Detection
 
 ### Goal
 Detect uninitialized variables that cause undefined behavior.
@@ -271,7 +500,7 @@ end program uninit
 
 ### Tasks
 
-**3a. Default Build (Undefined Behavior)**
+**5a. Default Build (Undefined Behavior)**
 
 ```bash
 ifx uninit.f90 -o uninit
@@ -280,7 +509,7 @@ ifx uninit.f90 -o uninit
 
 **Expected:** Undefined behavior. May print random value, NaN, or crash.
 
-**3b. Initialize to NaN (-ftrapuv)**
+**5b. Initialize to NaN (-ftrapuv)**
 
 ```bash
 ifx -ftrapuv -traceback -g -O0 uninit.f90 -o uninit
@@ -298,7 +527,7 @@ uninit             0000000000404352  uninit                    6  uninit.f90
 
 **Note:** `-ftrapuv` initializes all uninitialized local variables to a "trap value" (signaling NaN for floating-point). Behind the scenes, `-ftrapuv` **automatically enables** both `-init=snan` and `-fpe0`, which enables FP exception trapping. This causes immediate crashes when uninitialized values are used, making bugs obvious.
 
-**3c. Signaling NaN (-init=snan)**
+**5c. Signaling NaN (-init=snan)**
 
 ```bash
 ifx -init=snan -fpe0 -traceback -g -O0 uninit.f90 -o uninit
@@ -316,7 +545,7 @@ uninit             0000000000402D87  MAIN__                  6  uninit.f90
 
 **Note:** `-init=snan` initializes variables to signaling NaN and disables the default `-fpe3`. We explicitly add `-fpe0` to enable all FP exception trapping.
 
-**3d. Understanding What `-ftrapuv` Really Does (Using `-dryrun`)**
+**5d. Understanding What `-ftrapuv` Really Does (Using `-dryrun`)**
 
 The compiler driver (like `ifx` or `ifort`) often translates high-level flags into multiple lower-level flags passed to the actual compiler backend. You can see this translation using the `-dryrun` flag, which shows what **would** be passed without actually compiling:
 
@@ -449,7 +678,7 @@ ifx -ftrapuv -traceback -g -O0 uninit.f90 -o uninit
 - Performance impact: moderate (use during testing, remove for production)
 - These flags help catch hard-to-find bugs that cause intermittent failures
 
-## Exercise 4: Runtime Checking (Bounds and Comprehensive)
+## Exercise 6: Runtime Checking (Bounds and Comprehensive)
 
 ### Goal
 Catch array out-of-bounds access and other runtime errors using IFX runtime checks.
@@ -475,7 +704,7 @@ end program bounds_runtime
 
 ### Tasks
 
-**4a. Default Build (No Runtime Checking)**
+**6a. Default Build (No Runtime Checking)**
 
 ```bash
 ifx bounds_runtime.f90 -o bounds_runtime
@@ -484,7 +713,7 @@ ifx bounds_runtime.f90 -o bounds_runtime
 
 **Expected:** Undefined behavior. May print garbage value, crash, or silently corrupt memory.
 
-**4b. Enable Bounds Checking (-check bounds)**
+**6b. Enable Bounds Checking (-check bounds)**
 
 ```bash
 ifx -check bounds -traceback -g bounds_runtime.f90 -o bounds_runtime
@@ -506,7 +735,7 @@ bounds_runtime     0000000000402E3C  MAIN__                 10  bounds_runtime.f
 - Substring bounds
 - Pointer and allocatable array bounds
 
-**4c. Enable All Runtime Checks (-check all)**
+**6c. Enable All Runtime Checks (-check all)**
 
 ```bash
 ifx -check all -traceback -g bounds_runtime.f90 -o bounds_runtime
@@ -604,233 +833,6 @@ This requirement exists because `-check all` modifies the calling conventions an
 | `-check uninit` | ⚠️ **Avoid** - use `-ftrapuv` instead | High | Causes failures with MPI/MKL |
 | `-check all` | Comprehensive testing | Severe (2-10x) | Must link with same option |
 
-## Exercise 5: Floating Point Exception Handling
-
-### Goal
-Detect floating-point errors like division by zero, overflow, underflow.
-
-### Code: fpe.f90
-
-```fortran
-program fpe
-    implicit none
-    real :: a, b
-    
-    b = 3.0
-    a = b / 0.0    ! Division by zero
-    
-    print *, a
-end program fpe
-```
-
-**Bug:** Division by zero produces Inf by default (no error).
-
-### Tasks
-
-**5a. Default Build (No FP Exception Handling)**
-
-```bash
-ifx fpe.f90 -o fpe
-./fpe
-```
-
-**Expected:** Prints `Infinity` or `Inf`. No error.
-
-**Note:** By default, IFX uses `-fpe3` which disables all floating-point exception handling. Division by zero produces Inf, not an error.
-
-**5b. Enable FP Exception Handling (-fpe0)**
-
-```bash
-ifx -fpe0 -traceback -g fpe.f90 -o fpe
-./fpe
-```
-
-**Expected:** Runtime error at the division by zero.
-
-```
-forrtl: error (65): floating divide by zero
-Image              PC                Routine            Line        Source
-fpe                0000000000402D87  MAIN__                  6  fpe.f90
-...
-```
-
-**Note:** `-fpe0` enables all floating-point exception handling:
-- Division by zero
-- Overflow
-- Invalid operation (e.g., sqrt of negative number)
-
-### FP Exception Levels
-
-- **-fpe0** - Enable all FP exception handling (invalid, divide-by-zero, overflow)
-- **-fpe1** - Enable invalid and divide-by-zero only
-- **-fpe3** - Disable all FP exception handling (default)
-
-### Key Takeaways
-
-- **-fpe0** catches floating-point errors at runtime
-- Default is **-fpe3** (all FP exceptions disabled)
-- Catches division by zero, overflow, invalid operations
-- Performance impact: minimal
-- Recommended for scientific computing where NaN/Inf indicate errors
-- Use during development to catch numerical issues early
-
-## Exercise 6: Automatic Reallocation with `-assume realloc_lhs`
-
-### Goal
-Understand how `-assume realloc_lhs` controls automatic reallocation of allocatable arrays on assignment.
-
-### Code: assume_realloc_lhs.f90
-
-```fortran
-program assume_realloc_lhs
-   implicit none
-   integer, allocatable :: x(:)
-   allocate( x(2) )
-   print *, "Before assignment x(2): shape(x) = ", shape(x)
-   x = [ 1, 2, 3 ]
-   print *, "After assignment [1,2,3]: shape(x) = ", shape(x)
-end program assume_realloc_lhs
-```
-
-**Issue:** Allocatable array `x` is allocated with size 2, but we assign an array of size 3. What happens?
-
-### Tasks
-
-**6a. Default Behavior (Fortran 2003 Standard: Automatic Reallocation)**
-
-```bash
-ifx assume_realloc_lhs.f90 -o assume_realloc_lhs
-./assume_realloc_lhs
-```
-
-**Expected output:**
-```
-Before assignment x(2): shape(x) =            2
-After assignment [1,2,3]: shape(x) =            3
-```
-
-**Note:** By default, IFX follows the **Fortran 2003 standard** which requires automatic reallocation when an allocatable array on the left-hand side (LHS) of an assignment has a different shape than the right-hand side (RHS). The array is automatically deallocated and reallocated to match the RHS shape.
-
-**6b. Disable Automatic Reallocation (-assume norealloc_lhs)**
-
-```bash
-ifx -assume norealloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs
-./assume_realloc_lhs
-```
-
-**Expected output:**
-```
-Before assignment x(2): shape(x) =            2
-After assignment [1,2,3]: shape(x) =            2
-```
-
-**What happened:**
-- `-assume norealloc_lhs` disables automatic reallocation (Fortran 95 behavior)
-- The assignment tries to fit 3 elements into an array of size 2
-- Only the first 2 elements are copied, the 3rd element is silently ignored
-- **This is a potential bug!** No error, no warning, just wrong results
-
-**6c. Enable Automatic Reallocation Explicitly (-assume realloc_lhs)**
-
-```bash
-ifx -assume realloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs
-./assume_realloc_lhs
-```
-
-**Expected output:**
-```
-Before assignment x(2): shape(x) =            2
-After assignment [1,2,3]: shape(x) =            3
-```
-
-**Note:** `-assume realloc_lhs` explicitly enables automatic reallocation (default in IFX, Fortran 2003+ standard behavior).
-
-### Understanding `-assume` Options
-
-The `-assume` flag controls various runtime assumptions and behaviors:
-
-**Reallocation-related:**
-- **`-assume realloc_lhs`** - Enable automatic reallocation on assignment (default, F2003+)
-- **`-assume norealloc_lhs`** - Disable automatic reallocation (F95 behavior)
-
-**Other useful `-assume` options:**
-```bash
-# Byte order control
--assume byterecl          # RECL in OPEN specifies bytes (not words)
-
-# Array bounds checking (alternative to -check bounds)
--assume nobounds_check    # Disable bounds checking (default)
-
-# Buffering control
--assume buffered_io       # Use buffered I/O (default)
--assume nobuffered_io     # Disable buffering
-
-# Dummy argument checking
--assume dummy_aliases     # Assume dummy arguments may alias (conservative)
--assume nodummy_aliases   # Assume no aliasing (allows more optimization)
-
-# IEEE arithmetic
--assume ieee_fpe_flags    # Save/restore IEEE FPE flags on entry/exit
-
-# Show all assume options
-ifx -help assume
-```
-
-### Why This Matters
-
-**Fortran 2003+ Standard Behavior (automatic reallocation):**
-- ✅ **Safer**: Array always has correct size after assignment
-- ✅ **More convenient**: Don't need to manually reallocate
-- ⚠️ **Performance cost**: Reallocation involves deallocate + allocate + copy
-- ⚠️ **Memory overhead**: Temporary allocation during assignment
-
-**Legacy Fortran 95 Behavior (`-assume norealloc_lhs`):**
-- ⚠️ **Dangerous**: Silent truncation if RHS doesn't fit
-- ⚠️ **Hard to debug**: No error, wrong results
-- ✅ **Faster**: No reallocation overhead
-- ✅ **Predictable memory**: No hidden allocations
-
-**Real-world example where this matters:**
-```fortran
-! Reading variable-length data
-integer, allocatable :: buffer(:)
-allocate(buffer(100))
-
-! Later in code, read different sizes
-buffer = read_data_from_file(filename1)  ! Returns 150 elements
-! With realloc_lhs: buffer automatically resized to 150 ✅
-! With norealloc_lhs: only first 100 copied, data loss! ❌
-
-buffer = read_data_from_file(filename2)  ! Returns 50 elements  
-! With realloc_lhs: buffer resized to 50 ✅
-! With norealloc_lhs: only 50 elements updated, leftover data from before! ❌
-```
-
-### When to Use Each Option
-
-**Use default (`-assume realloc_lhs`):**
-- ✅ New code (Fortran 2003+)
-- ✅ When correctness is critical
-- ✅ When array sizes change dynamically
-- ✅ When you want standard-compliant behavior
-
-**Use `-assume norealloc_lhs` only if:**
-- ⚠️ Porting legacy Fortran 95 code that depends on old behavior
-- ⚠️ Performance-critical loop where reallocation overhead is measured and significant
-- ⚠️ You have verified all assignments have matching shapes
-- ⚠️ You understand the risks and have thorough testing
-
-### Key Takeaways
-
-- **Default (IFX)**: Automatic reallocation enabled (Fortran 2003+ standard)
-- **`-assume realloc_lhs`**: Explicitly enable automatic reallocation (safe, standard-compliant)
-- **`-assume norealloc_lhs`**: Disable automatic reallocation (dangerous, legacy F95 behavior)
-- **Silent data loss**: `-assume norealloc_lhs` can truncate data without warning
-- **Performance trade-off**: Automatic reallocation is safer but slower
-- **Best practice**: Use default behavior unless you have a specific reason and thorough testing
-- **Legacy code**: May need `-assume norealloc_lhs` for exact F95 behavior
-- **Check `-help assume`**: Many other runtime behavior options available
-
 ## Running All Exercises
 
 Use the provided script to run all exercises automatically:
@@ -842,10 +844,10 @@ Use the provided script to run all exercises automatically:
 # Run individual exercise
 ./run_exercises.sh 1  # Warning levels
 ./run_exercises.sh 2  # Standard conformance
-./run_exercises.sh 3  # Uninitialized variables
-./run_exercises.sh 4  # Runtime checking (bounds + comprehensive)
-./run_exercises.sh 5  # FP exceptions
-./run_exercises.sh 6  # Automatic reallocation (-assume)
+./run_exercises.sh 3  # Automatic reallocation (-assume)
+./run_exercises.sh 4  # FP exceptions
+./run_exercises.sh 5  # Uninitialized variables
+./run_exercises.sh 6  # Runtime checking (bounds + comprehensive)
 ```
 
 The script shows:

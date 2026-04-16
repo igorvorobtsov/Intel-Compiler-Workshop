@@ -53,14 +53,18 @@ ifx -O2 -xHost program.f90 -o program
 
 | Flag | Detects | Performance Impact | Recommendation |
 |------|---------|-------------------|----------------|
-| `-ftrapuv` | Uninitialized variables | Moderate | Use during testing |
-| `-init=snan` | Uninitialized (with FP exceptions) | Moderate | Alternative to -ftrapuv |
-| `-check bounds` | Array bounds violations | Moderate (10-50%) | Use during testing |
-| `-check pointer` | Invalid pointer use | Low | Use when debugging pointers |
-| `-check uninit` | Uninitialized variables (Linux) | Moderate | Can have false positives |
-| `-check all` | All runtime errors | Severe (2-10x) | Development only |
+| `-ftrapuv` | Uninitialized variables | Moderate | ✅ Use during testing |
+| `-init=snan` | Uninitialized (with FP exceptions) | Moderate | ✅ Alternative to -ftrapuv |
+| `-check bounds` | Array bounds violations | Moderate (10-50%) | ✅ Use during testing |
+| `-check pointer` | Invalid pointer use | Low | ✅ Use when debugging pointers |
+| `-check uninit` | Uninitialized variables (MSan) | High | ⚠️ **Avoid** - causes MPI/MKL failures |
+| `-check all` | All runtime errors (except uninit) | Severe (2-10x) | Development only |
 
-**Note:** `-check all` automatically sets `-O0` and overrides any `-O` level.
+**Important Notes:**
+- **`-check all`** automatically sets `-O0` and overrides any `-O` level
+- **`-check all`** now behaves as `-check all -check nouninit` (uninit excluded by default)
+- **Must link with `-check all`** if you compiled with it, or link may fail
+- **`-check uninit`** causes runtime failures with oneMKL, Intel MPI - use `-ftrapuv` instead
 
 ## Floating-Point Exception Handling
 
@@ -134,10 +138,10 @@ source setup_ifx.sh
 # Run specific exercise
 ./run_exercises.sh 1    # Warning levels
 ./run_exercises.sh 2    # Standard conformance
-./run_exercises.sh 3    # Uninitialized variables
-./run_exercises.sh 4    # Runtime checking (bounds + comprehensive)
-./run_exercises.sh 5    # FP exceptions
-./run_exercises.sh 6    # Automatic reallocation (-assume)
+./run_exercises.sh 3    # Automatic reallocation (-assume)
+./run_exercises.sh 4    # FP exceptions
+./run_exercises.sh 5    # Uninitialized variables
+./run_exercises.sh 6    # Runtime checking (bounds + comprehensive)
 ```
 
 ## Manual Exercise Commands
@@ -157,31 +161,31 @@ ifx standard.f90 -o standard                # Default (lenient)
 ifx -stand f18 standard.f90 -o standard    # Fortran 2018 standard
 ```
 
-### Exercise 3: Uninitialized Variables
+### Exercise 3: Automatic Reallocation
+```bash
+ifx assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs                    # Default (auto realloc)
+ifx -assume norealloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs  # Disable (F95 behavior)
+ifx -assume realloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs    # Explicit enable
+```
+
+### Exercise 4: FP Exceptions
+```bash
+ifx fpe.f90 -o fpe && ./fpe                          # Default (silent Inf)
+ifx -fpe0 -traceback -g fpe.f90 -o fpe && ./fpe      # Catch FP exceptions
+```
+
+### Exercise 5: Uninitialized Variables
 ```bash
 ifx uninit.f90 -o uninit && ./uninit                                    # Default (undefined)
 ifx -ftrapuv -traceback -g -O0 uninit.f90 -o uninit && ./uninit        # Trap uninitialized
 ifx -init=snan -fpe0 -traceback -g -O0 uninit.f90 -o uninit && ./uninit  # Signaling NaN
 ```
 
-### Exercise 4: Runtime Checking (Bounds + Comprehensive)
+### Exercise 6: Runtime Checking (Bounds + Comprehensive)
 ```bash
 ifx bounds_runtime.f90 -o bounds_runtime && ./bounds_runtime                          # Default (no check)
 ifx -check bounds -traceback -g bounds_runtime.f90 -o bounds_runtime && ./bounds_runtime  # Bounds only
 ifx -check all -traceback -g bounds_runtime.f90 -o bounds_runtime && ./bounds_runtime     # Comprehensive
-```
-
-### Exercise 5: FP Exceptions
-```bash
-ifx fpe.f90 -o fpe && ./fpe                          # Default (silent Inf)
-ifx -fpe0 -traceback -g fpe.f90 -o fpe && ./fpe      # Catch FP exceptions
-```
-
-### Exercise 6: Automatic Reallocation
-```bash
-ifx assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs                    # Default (auto realloc)
-ifx -assume norealloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs  # Disable (F95 behavior)
-ifx -assume realloc_lhs assume_realloc_lhs.f90 -o assume_realloc_lhs && ./assume_realloc_lhs    # Explicit enable
 ```
 
 ## Debugging with GDB
@@ -321,10 +325,10 @@ ifx -ftrapuv -g -O0 program.f90 -dryrun 2>&1 | grep -E "fpe|init"
 
 - `warn.f90` - Warning test (unused variables)
 - `standard.f90` - Standard conformance test
+- `assume_realloc_lhs.f90` - Automatic reallocation test
+- `fpe.f90` - Floating-point exception test
 - `uninit.f90` - Uninitialized variable test
 - `bounds_runtime.f90` - Runtime bounds violation test
-- `fpe.f90` - Floating-point exception test
-- `assume_realloc_lhs.f90` - Automatic reallocation test
 - `setup_ifx.sh` - Environment setup script
 - `run_exercises.sh` - Automated exercise runner
 - `README.md` - Complete lab documentation
