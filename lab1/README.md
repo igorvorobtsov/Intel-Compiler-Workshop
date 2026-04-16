@@ -407,5 +407,5 @@ After completing these exercises, you should understand:
 
 ## Additional Resources
 
-- [Intel oneAPI DPC++/C++ Compiler Documentation](https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/](https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/overview.html)
+- [Intel oneAPI DPC++/C++ Compiler Documentation](https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/overview.html)
 - [Compiler Explorer (Godbolt)](https://godbolt.org/)
