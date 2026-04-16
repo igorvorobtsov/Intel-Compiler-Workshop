@@ -225,10 +225,13 @@ if [ "$EXERCISE" == "4" ] || [ "$EXERCISE" == "all" ]; then
     echo ""
     ifx -check all -traceback -g bounds_runtime.f90 -o bounds_runtime 2>&1 && ./bounds_runtime 2>&1 || echo -e "${RED}Runtime error detected with -check all! Check traceback above.${NC}"
     echo ""
-    echo -e "Note: -check all enables bounds, pointer, uninit (Linux only), format, and more"
-    echo -e "Disables optimization (-O0) and overrides any -O level set"
-    echo -e "Performance impact: severe (2-10x slowdown)"
-    echo -e "Use during development, remove for production builds"
+    echo -e "${BLUE}Note: -check all enables bounds, pointer, format, and more${NC}"
+    echo -e "${RED}IMPORTANT: -check all now EXCLUDES -check uninit (changed in recent versions)${NC}"
+    echo -e "${RED}           -check uninit causes failures with oneMKL/MPI libraries${NC}"
+    echo -e "${YELLOW}⚠️  CAUTION: Must LINK with -check all if you compiled with it!${NC}"
+    echo -e "${BLUE}Disables optimization (-O0) and overrides any -O level set${NC}"
+    echo -e "${BLUE}Performance impact: severe (2-10x slowdown)${NC}"
+    echo -e "${BLUE}Use during development, remove for production builds${NC}"
 fi
 
 # Exercise 5: Floating point exceptions

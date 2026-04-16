@@ -394,7 +394,7 @@ ifx -ftrapuv -fpe3 -traceback -g -O0 uninit.f90 -o uninit
 4. The division `sNaN / 0.0` produces `NaN` silently without trapping
 5. Program continues with invalid result
 
-**This is a common mistake** when combining compiler flags which are conflicting.
+**This is a common mistake** when combining compicting compiler flags.
 
 ### How `-init=snan` Differs from `-ftrapuv`
 
@@ -406,6 +406,8 @@ ifx -init=snan -fpe3 -traceback -g -O0 uninit.f90 -o uninit
 ./uninit
 # Output: forrtl: error (182): floating invalid (still caught!)
 ```
+
+**Key difference:** `-init=snan` is **smart** - it protects itself and overrides conflicting `-fpe3`, while `-ftrapuv` can be overridden.
 
 ### Complete Test Matrix
 
@@ -432,12 +434,6 @@ ifx -init=snan -fpe0 -traceback -g -O0 uninit.f90 -o uninit
 # Works great, but don't add -fpe3 after it!
 ifx -ftrapuv -traceback -g -O0 uninit.f90 -o uninit
 ```
-
-**What to avoid:**
-- ❌ Don't use `-ftrapuv -fpe3` (defeats the purpose)
-- ❌ Don't assume `-ftrapuv` "only" initializes variables (it does more)
-- ✅ Use `-init=snan` if you need fine control over FPE modes
-- ✅ Understand that flag order matters on the command line (later flags can override earlier ones)
 
 ### Key Takeaways
 
@@ -527,10 +523,29 @@ forrtl: severe (408): fort: (2): Subscript #1 of the array ARR has value 6 which
 **Note:** `-check all` enables comprehensive runtime checking including:
 - **bounds** - Array and substring bounds
 - **pointer** - Pointer and allocatable array association status
-- **uninit** - Uninitialized variables (Linux only)
 - **format** - Format string checking
 - **arg_temp_created** - Argument aliasing
 - And more...
+
+**⚠️ IMPORTANT CHANGE in Recent Intel Compiler Versions:**
+
+As of recent versions, **`-check all` now behaves as `-check all -check nouninit`**:
+- **`-check uninit`** is **NO LONGER** included in `-check all`
+- This change was made because `-check uninit` (MemorySanitizer) causes runtime failures when linking with libraries not built with this option
+- Libraries like Intel® oneAPI Math Kernel Library (oneMKL) or Intel® MPI Library cannot be used with `-check uninit`
+- If you need uninitialized variable checking, use `-ftrapuv` instead (see Exercise 3)
+
+**Why this matters:**
+```bash
+# This works fine:
+ifx -check all program.f90 -o program
+
+# This may cause runtime failures if you link with oneMKL/MPI:
+ifx -check uninit program.f90 -lmkl_rt -o program
+# ERROR: Runtime failures in library code!
+```
+
+**Recommendation:** Use `-ftrapuv` for uninitialized variable detection (Exercise 3) instead of `-check uninit`. It's more reliable and doesn't have linking issues.
 
 ### Individual Check Options
 
@@ -547,25 +562,47 @@ ifx -check bounds,pointer program.f90
 ifx -check all -check noformat program.f90
 ```
 
+### ⚠️ CAUTION: Linking with `-check all`
+
+**Files compiled with `-check all` must also be linked with the same option, or the link step may fail.**
+
+```bash
+# CORRECT: Compile AND link with -check all
+ifx -check all -traceback -g module1.f90 module2.f90 main.f90 -o program
+
+# WRONG: Compile with -check all but link without it
+ifx -check all -c module1.f90    # Compile with checks
+ifx -check all -c module2.f90    # Compile with checks
+ifx module1.o module2.o main.f90 -o program   # Link without checks - MAY FAIL!
+
+# CORRECT: Link with -check all too
+ifx -check all module1.o module2.o main.f90 -o program
+```
+
+This requirement exists because `-check all` modifies the calling conventions and runtime library linkage. Mixing checked and unchecked object files can cause link errors or runtime failures.
+
 ### Key Takeaways
 
 - **-check bounds** catches out-of-bounds array access at runtime
-- **-check all** enables maximum runtime checking (bounds + pointer + uninit + more)
+- **-check all** enables maximum runtime checking (bounds + pointer + format + more)
+- **IMPORTANT**: `-check all` now excludes `-check uninit` (changed in recent versions)
 - Provides exact line number and which subscript is out of bounds
 - Shows the invalid value and the valid range
 - **-check all disables optimization** (sets -O0 automatically) and overrides any -O level
+- **Must link with `-check all`** if you compiled with it (or link will fail)
+- **Cannot use `-check uninit`** with oneMKL, MPI, or other external libraries
 - Performance impact: `-check bounds` moderate (10-50%), `-check all` severe (2-10x)
 - Use during development and testing, remove for production builds
 - Catches bugs that lead to crashes, memory corruption, or security vulnerabilities
 
 ### When to Use Each Check
 
-| Check | When to Use | Performance Impact |
-|-------|-------------|-------------------|
-| `-check bounds` | Always during testing | Moderate (10-50%) |
-| `-check pointer` | Testing with pointers/allocatables | Low |
-| `-check uninit` | Debugging intermittent bugs | Moderate |
-| `-check all` | Comprehensive testing | Severe (2-10x) |
+| Check | When to Use | Performance Impact | Notes |
+|-------|-------------|-------------------|-------|
+| `-check bounds` | Always during testing | Moderate (10-50%) | Safe, no linking issues |
+| `-check pointer` | Testing with pointers/allocatables | Low | Safe, no linking issues |
+| `-check uninit` | ⚠️ **Avoid** - use `-ftrapuv` instead | High | Causes failures with MPI/MKL |
+| `-check all` | Comprehensive testing | Severe (2-10x) | Must link with same option |
 
 ## Exercise 5: Floating Point Exception Handling
 
