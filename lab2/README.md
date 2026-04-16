@@ -54,7 +54,7 @@ ifx (IFX) 2025.3.0 ...
 ## Exercise 1: Warning Levels and Fortran-Specific Warnings
 
 ### Goal
-Learn how to enable Fortran-specific warnings to catch potential issues.
+Learn how to control Fortran compiler warnings to catch potential issues.
 
 ### Code: warn.f90
 
@@ -71,17 +71,30 @@ program warn
 end program warn
 ```
 
-**Bug:** Variable `abc` is declared but never used (potential typo or dead code).
+**Issues:** 
+- Variable `abc` is declared but never used (potential typo or dead code)
+- Statement function `afunc` is defined but never called
 
 ### Tasks
 
-**1a. Default Warnings**
+**1a. Default Behavior (Default Warning Settings)**
 
 ```bash
 ifx warn.f90 -o warn
 ```
 
-**Expected:** Compiles successfully. No warnings about unused variable `abc`.
+**Expected:** Compiles successfully with a remark about the uncalled statement function:
+```
+warn.f90(3): remark #7713: This statement function has not been used.   [AFUNC]
+    real :: afunc, b
+------------^
+```
+
+**Note:** By default, IFX issues **remarks** (not warnings) for uncalled functions. The unused variable `abc` is **not** reported because `-warn nounused` is the default (no warnings for unused variables).
+
+**Default warning behaviors:**
+- `-warn nounused` - No warnings for unused variables (default)
+- `-warn uncalled` - Remarks for uncalled statement functions (default, but as remarks not warnings)
 
 **1b. Enable Unused Variable Warnings (-warn unused)**
 
@@ -89,49 +102,74 @@ ifx warn.f90 -o warn
 ifx -warn unused warn.f90 -o warn
 ```
 
-**Expected:**
+**Expected:** Now reports **both** the unused variable and the uncalled function:
 ```
-warn.f90(4): warning #7712: This variable has not been used.   [ABC]
+warn.f90(3): remark #7713: This statement function has not been used.   [AFUNC]
+    real :: afunc, b
+------------^
+warn.f90(4): remark #7712: This variable has not been used.   [ABC]
     integer :: abc
-               ^
+---------------^
 ```
 
-**Note:** `-warn unused` catches unused variables, which often indicate:
+**Note:** `-warn unused` enables reporting of unused variables, which often indicate:
 - Typos in variable names
 - Dead code
 - Incomplete implementations
 - Copy-paste errors
 
-**1c. Suppress Unused Warnings (-warn nounused)**
+**1c. Suppress All Unused Warnings (-warn nounused)**
 
 ```bash
 ifx -warn nounused warn.f90 -o warn
 ```
 
-**Expected:** No warning. Use this only when you have a justified reason (e.g., interface compatibility).
+**Expected:** Still reports uncalled function (this is controlled separately):
+```
+warn.f90(3): remark #7913: This statement function has not been used.   [AFUNC]
+    real :: afunc, b
+------------^
+```
 
-**1d. Warn About Uncalled Functions (-warn uncalled)**
+**Note:** `-warn nounused` is actually the **default**, so this has the same effect as 1a. It explicitly suppresses unused variable warnings.
+
+**1d. Suppress Uncalled Function Remarks (-warn nouncalled)**
 
 ```bash
-ifx -warn uncalled warn.f90 -o warn
+ifx -warn nouncalled warn.f90 -o warn
 ```
 
-**Expected:**
-```
-warn.f90(7): warning #7960: The STATEMENT FUNCTION has not been called.   [AFUNC]
-    afunc(b) = 123*b
-    ^
+**Expected:** Compiles with no output - all unused/uncalled remarks suppressed.
+
+**Note:** This suppresses the remark about uncalled statement functions.
+
+**1e. Enable All Warnings (-warn all)**
+
+```bash
+ifx -warn all warn.f90 -o warn
 ```
 
-**Note:** Statement function `afunc` is defined but never called.
+**Expected:** Maximum warning level - reports all issues.
+
+### Understanding Remarks vs Warnings
+
+IFX distinguishes between:
+- **Remarks**: Informational messages (default for unused/uncalled)
+- **Warnings**: More serious issues that should be addressed
+- **Errors**: Code will not compile
+
+Use `-diag-disable=remark` to suppress all remarks if they're too verbose.
 
 ### Key Takeaways
 
-- **-warn unused** catches unused variables (recommended during development)
-- **-warn uncalled** catches unused functions
-- **-warn nounused** suppresses unused warnings (use sparingly)
-- Warnings help catch typos, dead code, and potential bugs
-- Use warnings during development, suppress only when justified
+- **Default**: `-warn nounused` (no unused variable warnings) and remarks for uncalled functions
+- **`-warn unused`**: Enable unused variable warnings (recommended during development)
+- **`-warn nounused`**: Explicitly suppress unused warnings (default behavior)
+- **`-warn nouncalled`**: Suppress uncalled function remarks
+- **`-warn all`**: Enable all warnings (most strict)
+- Remarks vs warnings: IFX reports unused/uncalled as "remarks" not "warnings"
+- These checks are compile-time only (no runtime overhead)
+- Help catch typos, dead code, and potential bugs early
 
 ## Exercise 2: Standard Conformance Checking
 

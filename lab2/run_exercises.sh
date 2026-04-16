@@ -81,19 +81,35 @@ if [ "$EXERCISE" == "1" ] || [ "$EXERCISE" == "all" ]; then
 
     setup_ifx
 
-    echo -e "${GREEN}=== Default warnings ===${NC}"
+    echo -e "${GREEN}=== Default behavior (nounused is default) ===${NC}"
     run_cmd "ifx warn.f90 -o warn"
+    echo -e "${BLUE}Notice: Remark about uncalled function (default), but NO remark about unused variable${NC}"
+    echo ""
 
-    echo -e "${GREEN}=== With -warn unused ===${NC}"
+    echo -e "${GREEN}=== With -warn unused (enable unused variable remarks) ===${NC}"
     run_cmd "ifx -warn unused warn.f90 -o warn"
+    echo -e "${BLUE}Notice: NOW shows remark about unused variable 'abc'${NC}"
+    echo ""
 
-    echo -e "${GREEN}=== With -warn nounused (suppress) ===${NC}"
+    echo -e "${GREEN}=== With -warn nounused (explicit, same as default) ===${NC}"
     run_cmd "ifx -warn nounused warn.f90 -o warn"
+    echo -e "${BLUE}Same as default - nounused is the default behavior${NC}"
+    echo ""
 
-    echo -e "${GREEN}=== With -warn uncalled (unused functions) ===${NC}"
-    run_cmd "ifx -warn uncalled warn.f90 -o warn"
+    echo -e "${GREEN}=== With -warn nouncalled (suppress uncalled function remarks) ===${NC}"
+    run_cmd "ifx -warn nouncalled warn.f90 -o warn"
+    echo -e "${BLUE}Notice: No remarks at all - both unused and uncalled suppressed${NC}"
+    echo ""
 
-    echo -e "Note: Use -warn unused during development, suppress only when justified"
+    echo -e "${GREEN}=== With -warn all (maximum warnings) ===${NC}"
+    run_cmd "ifx -warn all warn.f90 -o warn"
+    echo -e "${BLUE}Reports all possible issues${NC}"
+    echo ""
+
+    echo -e "${BLUE}Key points:${NC}"
+    echo -e "• Default is ${YELLOW}-warn nounused${NC} (no unused variable remarks)"
+    echo -e "• Uncalled functions produce remarks by default"
+    echo -e "• Use ${GREEN}-warn unused${NC} during development to catch unused variables"
 fi
 
 # Exercise 2: Standard conformance

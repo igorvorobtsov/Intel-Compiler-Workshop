@@ -29,12 +29,15 @@ ifx -O2 -xHost program.f90 -o program
 
 ## Warning Flags
 
-| Flag | Purpose | Example Error It Catches |
-|------|---------|-------------------------|
-| `-warn unused` | Unused variables | `integer :: abc` not used |
-| `-warn uncalled` | Unused functions | Function defined but never called |
-| `-warn nounused` | Suppress unused warnings | Intentional unused variables |
-| `-warn all` | All warnings | Everything |
+| Flag | Purpose | Default? |
+|------|---------|----------|
+| `-warn unused` | Enable unused variable remarks | No (use this for development) |
+| `-warn nounused` | Suppress unused variable remarks | **Yes** (default) |
+| `-warn uncalled` | Enable uncalled function remarks | Yes (as remarks) |
+| `-warn nouncalled` | Suppress uncalled function remarks | No |
+| `-warn all` | Enable all warnings | No |
+
+**Note:** Default is `-warn nounused` (no unused variable remarks). Uncalled functions produce remarks by default.
 
 ## Standard Conformance
 
@@ -141,10 +144,11 @@ source setup_ifx.sh
 
 ### Exercise 1: Warnings
 ```bash
-ifx warn.f90 -o warn                        # Default
-ifx -warn unused warn.f90 -o warn           # Catch unused variables
-ifx -warn nounused warn.f90 -o warn         # Suppress
-ifx -warn uncalled warn.f90 -o warn         # Catch unused functions
+ifx warn.f90 -o warn                        # Default (nounused is default)
+ifx -warn unused warn.f90 -o warn           # Enable unused variable remarks
+ifx -warn nounused warn.f90 -o warn         # Explicit suppress (same as default)
+ifx -warn nouncalled warn.f90 -o warn       # Suppress uncalled function remarks
+ifx -warn all warn.f90 -o warn              # Enable all warnings
 ```
 
 ### Exercise 2: Standards
