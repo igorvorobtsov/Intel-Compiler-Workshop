@@ -394,21 +394,9 @@ ifx -ftrapuv -fpe3 -traceback -g -O0 uninit.f90 -o uninit
 4. The division `sNaN / 0.0` produces `NaN` silently without trapping
 5. Program continues with invalid result
 
-**This is a common mistake** when combining compiler flags without understanding the order matters!
+**This is a common mistake** when combining compiler flags which are conflicting.
 
 ### How `-init=snan` Differs from `-ftrapuv`
-
-**`-init=snan` alone:**
-- Only initializes variables to signaling NaN
-- Also automatically disables default `-fpe3` and enables FP trapping
-- More focused: just the initialization part
-
-```bash
-# -init=snan automatically enables FP exception trapping
-ifx -init=snan -traceback -g -O0 uninit.f90 -o uninit
-./uninit
-# Output: forrtl: error (182): floating invalid
-```
 
 **`-init=snan` is protected from `-fpe3` override:**
 ```bash
@@ -418,8 +406,6 @@ ifx -init=snan -fpe3 -traceback -g -O0 uninit.f90 -o uninit
 ./uninit
 # Output: forrtl: error (182): floating invalid (still caught!)
 ```
-
-**Key difference:** `-init=snan` is **smart** - it protects itself and overrides conflicting `-fpe3`, while `-ftrapuv` can be overridden.
 
 ### Complete Test Matrix
 
@@ -448,7 +434,7 @@ ifx -ftrapuv -traceback -g -O0 uninit.f90 -o uninit
 ```
 
 **What to avoid:**
-- ❌ **Never** use `-ftrapuv -fpe3` (defeats the purpose)
+- ❌ Don't use `-ftrapuv -fpe3` (defeats the purpose)
 - ❌ Don't assume `-ftrapuv` "only" initializes variables (it does more)
 - ✅ Use `-init=snan` if you need fine control over FPE modes
 - ✅ Understand that flag order matters on the command line (later flags can override earlier ones)
