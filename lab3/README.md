@@ -1978,7 +1978,7 @@ icx -xCORE-AVX512 -O2 -fargument-noalias compress.c compress_main.c -o compress_
 
 **Loop not vectorizing?**
 - Check the report for remark `#15304` explaining why
-- Try `-qopt-report=5` for more details
+- Try `-qopt-report=3` for more details
 - Look for dependency or aliasing issues
 
 **Wrong CPU detection with -xHost?**
@@ -2014,7 +2014,7 @@ icx -xCORE-AVX512 -O2 -fargument-noalias compress.c compress_main.c -o compress_
 **Key insights from Exercise 2:**
 - **`-march` and `-x`** produce single-version binaries optimized for specific CPUs
 - **`-ax`** creates multiple code versions with runtime CPU detection (auto-dispatch)
-- Single-version code is smaller but may crash on older CPUs (Illegal Instruction)
+- Single-version code is smaller but may crash on older CPUs (Illegal Instruction with -m)
 - Auto-dispatch code is larger but runs optimally on any CPU
 - Assembly analysis shows dispatcher functions and multiple implementation variants with `-ax`
 - Choose based on deployment: homogeneous cluster (use `-x`) vs. distributed software (use `-ax`)
@@ -2051,3 +2051,40 @@ icx -xCORE-AVX512 -O2 -fargument-noalias compress.c compress_main.c -o compress_
 - Common in **scientific computing**: graphics, physics, image processing
 - Use **`#define`** or **`constexpr`** to make dimensions known at compile time
 - Variable trip counts prevent outer loop vectorization (requires SIMD pragmas)
+
+**Exercise 5 - What you learned:**
+1. ✅ Measure real-world performance of different vectorization strategies
+2. ✅ Compare baseline vs optimized performance with actual benchmarks
+3. ✅ Understand impact of different ISA levels (AVX, AVX2, AVX-512)
+4. ✅ Quantify benefits of FMA instructions and wider registers
+5. ✅ Identify CPU architecture from /proc/cpuinfo
+6. ✅ Interpret throughput metrics (million operations/sec, GFLOPS)
+
+**Key insights from Exercise 5:**
+- **Vectorization delivers real speedups**: 2-4x from basic vectorization (V1-AVX vs baseline)
+- **Outer loop vectorization outperforms inner**: V2 and V3 show better performance than V1
+- **Known trip counts matter**: V3 (outer + inner unrolled) faster than V2 (outer only)
+- **FMA instructions boost performance**: AVX2 with FMA significantly faster than plain AVX
+- **512-bit registers help**: AVX-512 processes 16 floats at once vs 8 for AVX2
+- **Memory bandwidth limits**: Wider vectors need more memory bandwidth to stay efficient
+- **Frequency throttling**: AVX-512 may cause CPU frequency reduction on some processors
+- **Benchmark before optimizing**: Actual speedups vary by CPU, problem size, and memory access patterns
+
+**Exercise 6 - What you learned:**
+1. ✅ Recognize special loop patterns (idioms) like compress/expand
+2. ✅ Understand AVX-512 specialized instructions (vcompresspd)
+3. ✅ Identify ISA limitations (AVX2 cannot vectorize compress patterns)
+4. ✅ Analyze assembly to verify instruction usage
+5. ✅ Compare performance of vectorized vs scalar compress operations
+6. ✅ Understand data-dependent write patterns
+
+**Key insights from Exercise 6:**
+- **Compress pattern**: Conditional store with data-dependent write position (`if (a[i] > 0) b[nb++] = a[i]`)
+- **AVX-512 special instruction**: `vcompresspd` stores selected elements contiguously based on mask
+- **AVX2 limitation**: No compress instruction, compiler cannot auto-vectorize this pattern
+- **Pattern recognition**: Compiler automatically recognizes simple compress patterns with AVX-512
+- **No pragmas needed**: Unlike complex patterns, simple compress auto-vectorizes
+- **Typical speedup**: 2-4x with AVX-512 depending on selectivity (% of elements passing condition)
+- **Selectivity impact**: Performance gain increases with higher selectivity (50-90% optimal)
+- **Other AVX-512 idioms**: expand, conflict detection, population count all benefit from specialized instructions
+- **ISA matters**: Some algorithms require specific instruction set features to vectorize efficiently
