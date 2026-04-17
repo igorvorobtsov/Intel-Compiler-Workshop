@@ -351,16 +351,7 @@ icx -O2 -xHost -DUSE_OMP_SIMD program.c -o program
 icx -O2 -xHost -qopenmp -DUSE_OMP_SIMD program.c -o program
 ```
 
-### 4. Using -fverbose-asm Unnecessarily
-```bash
-# DON'T: -fverbose-asm not needed
-icx -O2 -xHost -S -fverbose-asm program.c -o program.s
-
-# DO: Just -S is sufficient
-icx -O2 -xHost -S program.c -o program.s
-```
-
-### 5. Expecting 512-bit with -xCORE-AVX512 by Default
+### 4. Expecting 512-bit with -xCORE-AVX512 by Default
 - Default: Uses 256-bit YMM registers
 - For 512-bit ZMM: Add `-mprefer-vector-width=512` or `-qopt-zmm-usage=high`
 
@@ -408,12 +399,11 @@ icx -O2 -xHost -S program.c -o program.s
 
 ## Online Resources
 
-- **Intel Compiler Documentation:** https://www.intel.com/content/www/us/en/docs/cpp-compiler
+- **Intel® oneAPI DPC++/C++ Compiler Developer Guide and Reference:** https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/overview.html
 - **Compiler Explorer (Godbolt):** https://godbolt.org
-- **Exercise 1 on Godbolt:** https://godbolt.org/z/6nc7Eqcda
 - **Exercise 3 on Godbolt:** https://godbolt.org/z/x8TxG56Gr
 - **Exercise 6 on Godbolt:** https://godbolt.org/z/63oTsshKd
-- **Intel Intrinsics Guide:** https://www.intel.com/content/www/us/en/docs/intrinsics-guide
+- **Intel Intrinsics Guide:** https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html
 
 ## File Overview
 

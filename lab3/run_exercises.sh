@@ -411,11 +411,11 @@ if [ "$EXERCISE" == "3" ] || [ "$EXERCISE" == "all" ]; then
     echo -e "${GREEN}=== Generate assembly for inspection ===${NC}"
 
     setup_icc
-    run_cmd "icc -O2 -xHost -S -fverbose-asm addit.c -o addit_icc.s"
+    run_cmd "icc -O2 -xHost -S addit.c -o addit_icc.s"
 
     setup_icx
-    run_cmd "icx -O2 -xHost -S -fverbose-asm addit.c -o addit_icx_scalar.s"
-    run_cmd "icx -O2 -xHost -qopenmp -S -fverbose-asm addit_omp.c -o addit_icx_simd.s"
+    run_cmd "icx -O2 -xHost -S addit.c -o addit_icx_scalar.s"
+    run_cmd "icx -O2 -xHost -qopenmp -S addit_omp.c -o addit_icx_simd.s"
 
     echo -e "${BLUE}========================================${NC}"
     echo -e "${BLUE}SIMD Instructions Check${NC}"

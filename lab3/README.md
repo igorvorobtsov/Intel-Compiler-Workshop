@@ -823,14 +823,14 @@ icx -O2 -xHost -qopenmp addit_omp.c addit_main.c -o addit_icx_simd
 ```bash
 # ICC version
 source setup_icc.sh
-icc -O2 -xHost -S -fverbose-asm addit.c -o addit_icc.s
+icc -O2 -xHost -S addit.c -o addit_icc.s
 
 # ICX without pragma
 source setup_icx.sh
-icx -O2 -xHost -S -fverbose-asm addit.c -o addit_icx_scalar.s
+icx -O2 -xHost -S addit.c -o addit_icx_scalar.s
 
 # ICX with pragma
-icx -O2 -xHost -qopenmp -S -fverbose-asm addit_omp.c -o addit_icx_simd.s
+icx -O2 -xHost -qopenmp -S addit_omp.c -o addit_icx_simd.s
 ```
 
 **Look for SIMD instructions:**
@@ -1834,9 +1834,9 @@ icx -O2 -xHost addit.c addit_main.c -o addit_icx_scalar
 icx -O2 -xHost -qopenmp addit_omp.c addit_main.c -o addit_icx_simd
 
 # Generate assembly
-icc -O2 -xHost -S -fverbose-asm addit.c -o addit_icc.s
-icx -O2 -xHost -S -fverbose-asm addit.c -o addit_icx_scalar.s
-icx -O2 -xHost -qopenmp -S -fverbose-asm addit_omp.c -o addit_icx_simd.s
+icc -O2 -xHost -S addit.c -o addit_icc.s
+icx -O2 -xHost -S addit.c -o addit_icx_scalar.s
+icx -O2 -xHost -qopenmp -S addit_omp.c -o addit_icx_simd.s
 
 # Check for SIMD instructions
 grep -E "vmovupd|vaddpd" addit_icc.s
@@ -1949,7 +1949,6 @@ icx -xCORE-AVX512 -O2 -fargument-noalias compress.c compress_main.c -o compress_
 - **`-qopt-report-phase=vec`**: Filter to show only vectorization info
 - **`-fargument-noalias`**: Assume pointer arguments don't alias (eliminates multiversioning)
 - **`-S`**: Generate assembly code
-- **`-fverbose-asm`**: Add comments to assembly output
 
 ### Architecture Selection
 
@@ -1967,10 +1966,9 @@ icx -xCORE-AVX512 -O2 -fargument-noalias compress.c compress_main.c -o compress_
 
 ## Resources
 
-- **Intel Compiler Documentation**: [https://www.intel.com/content/www/us/en/docs/cpp-compiler](https://www.intel.com/content/www/us/en/docs/cpp-compiler)
+- **Intel® oneAPI DPC++/C++ Compiler Developer Guide and Reference**: [https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/overview.html](https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/overview.html)
 - **Compiler Explorer (Godbolt)**: [https://godbolt.org](https://godbolt.org)
-- **Exercise 1 on Godbolt**: [https://godbolt.org/z/6nc7Eqcda](https://godbolt.org/z/6nc7Eqcda)
-- **Intel Intrinsics Guide**: [https://www.intel.com/content/www/us/en/docs/intrinsics-guide](https://www.intel.com/content/www/us/en/docs/intrinsics-guide)
+- **Intel Intrinsics Guide**: [https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html](https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html)
 
 ## Troubleshooting
 
