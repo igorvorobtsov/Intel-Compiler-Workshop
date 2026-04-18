@@ -848,7 +848,6 @@ icx -O2 -xHost -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=stdout ad
 ```
 LOOP BEGIN at addit.c(4,3)
    remark #15344: loop was not vectorized: vector dependence prevents vectorization
-   remark #15346: vector dependence: assumed FLOW dependence between a[i] (5:9) and a[i-x] (5:18)
 ```
 
 **ICX's approach:**
