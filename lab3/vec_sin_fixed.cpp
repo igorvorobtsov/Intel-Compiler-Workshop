@@ -1,4 +1,4 @@
-#include <cmath>
+#include <math.h>
 
 void foo (float * theta, float * sth)  {
   int i;

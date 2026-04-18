@@ -212,10 +212,10 @@ grep "__intel_new_feature_proc_init" program.s
 
 ### Compress Pattern (AVX-512 Only)
 ```c
-int compress(double *a, double *b, int na) {
+int compress(float *a, float *b, int na) {
     int nb = 0;
     for (int ia = 0; ia < na; ia++) {
-        if (a[ia] > 0.)
+        if (a[ia] > 0.f)
             b[nb++] = a[ia];  // Conditional write with increment
     }
     return nb;
@@ -223,10 +223,15 @@ int compress(double *a, double *b, int na) {
 ```
 
 **Vectorization:**
-- ✅ AVX-512: Auto-vectorizes with `vcompresspd` instruction
+- ✅ AVX-512: Auto-vectorizes with `vcompressps` instruction (16 floats)
 - ❌ AVX2: Cannot vectorize (no compress instruction)
 
-**Key instruction:** `vcompresspd` - stores selected elements contiguously based on mask
+**Key instruction:** `vcompressps` - stores selected elements contiguously based on mask
+
+**Performance on Intel SPR (10M elements, ~50% selectivity):**
+- AVX2 (scalar): 0.047s, 212 M elem/s
+- AVX-512 (vectorized): 0.004s, 2512 M elem/s
+- **Speedup: 11.9x** (most dramatic of all exercises!)
 
 ## Exercise Quick Commands
 
@@ -307,23 +312,42 @@ icx -O2 -xCORE-AVX512 -qopt-zmm-usage=high -qopenmp -DUSE_OMP_SIMD -DKNOWN_TRIP_
 ./bench_v1_o1 && ./bench_v1_avx && ./bench_v2_avx && ./bench_v3_avx && ./bench_v3_avx2 && ./bench_v3_avx512
 ```
 
+**Expected Performance on Intel SPR (100M points):**
+
+| Version | Time (s) | Speedup | Key Insight |
+|---------|----------|---------|-------------|
+| V1-O1 | 0.238 | 1.00x | Baseline (no vectorization) |
+| V1-AVX | 0.168 | 1.41x | Inner loop, unit-stride loads |
+| V2-AVX | 0.211 | 1.13x | Outer loop, gather loads penalty |
+| V3-AVX | 0.138 | 1.72x | VLS-optimized stride-3 |
+| V3-AVX2 | 0.115 | 2.07x | FMA adds 20% when memory optimized |
+| V3-AVX512 | 0.113 | 2.10x | Bandwidth saturated (only 1.5% faster) |
+
+**Key lessons:**
+- Memory access pattern matters most (V1 beats V2)
+- Known trip counts enable VLS optimization (V3 > V1, V2)
+- FMA benefits when memory is optimized (V3-AVX2 > V3-AVX)
+- Memory bandwidth limits wider vectors (V3-AVX512 ≈ V3-AVX2)
+
 ### Exercise 6: Compress Pattern
 ```bash
 # AVX2 (not vectorized)
 icx -xCORE-AVX2 -O2 -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=stdout -fargument-noalias compress.c -c
 
-# AVX-512 (vectorized with vcompresspd)
+# AVX-512 (vectorized with vcompressps)
 icx -xCORE-AVX512 -O2 -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=stdout -fargument-noalias compress.c -c
 
 # Generate assembly and check for vcompress instruction
 icx -xCORE-AVX2 -O2 -S -fargument-noalias compress.c -o compress_avx2.s
 icx -xCORE-AVX512 -O2 -S -fargument-noalias compress.c -o compress_avx512.s
 grep "vcompress" compress_avx2.s      # Should be empty
-grep "vcompress" compress_avx512.s    # Should find vcompresspd
+grep "vcompress" compress_avx512.s    # Should find vcompressps
 
-# Build and benchmark
+# Build and benchmark (expect 11.9x speedup on SPR)
 icx -xCORE-AVX2 -O2 -fargument-noalias compress.c compress_main.c -o compress_avx2
 icx -xCORE-AVX512 -O2 -fargument-noalias compress.c compress_main.c -o compress_avx512
+./compress_avx2      # ~0.047s
+./compress_avx512    # ~0.004s (11.9x faster!)
 ```
 
 ## Common Pitfalls
@@ -444,6 +468,9 @@ icx -O2 -xHost -qopenmp -DUSE_OMP_SIMD program.c -o program
 5. **OpenMP SIMD pragmas** force vectorization when safe
 6. **Outer loop vectorization** processes multiple iterations simultaneously
 7. **Known trip counts** enable better optimization (inner unrolling + outer vectorization)
-8. **Special idioms** like compress patterns auto-vectorize with AVX-512
+8. **Special idioms** like compress patterns auto-vectorize with AVX-512 (11.9x speedup!)
 9. **Type conversions** can halve vectorization efficiency
 10. **Optimization reports** reveal hidden performance issues
+11. **Memory access patterns** matter more than vectorization strategy (V1-AVX beats V2-AVX)
+12. **FMA benefits** appear when memory access is optimized (V3-AVX2 20% faster than V3-AVX)
+13. **Memory bandwidth** limits wider vectors (AVX-512 only 1.5% faster than AVX2 on memory-bound code)

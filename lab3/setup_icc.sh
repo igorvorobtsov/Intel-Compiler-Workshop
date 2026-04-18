@@ -2,8 +2,9 @@
 # Setup script for ICC (Intel C++ Compiler Classic)
 
 echo "Setting up ICC environment..."
-module switch stack stack/23.1.0
-module load intel/2023.2.1
+module unload intel 2>/dev/null || true
+module switch stack stack/23.1.0 2>/dev/null
+module load intel/2023.2.1 2>/dev/null
 
 echo ""
 echo "ICC environment loaded!"

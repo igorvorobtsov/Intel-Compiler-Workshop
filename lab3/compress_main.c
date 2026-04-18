@@ -2,17 +2,17 @@
 #include <stdlib.h>
 #include <time.h>
 
-int compress(double *a, double *b, int na);
+int compress(float *a, float *b, int na);
 
 int main() {
     int na = 10000000;  // 10 million elements
-    double *a = (double*)malloc(na * sizeof(double));
-    double *b = (double*)malloc(na * sizeof(double));
+    float *a = (float*)malloc(na * sizeof(float));
+    float *b = (float*)malloc(na * sizeof(float));
 
     // Initialize: mix of positive and negative values (roughly 50% positive)
     srand(42);
     for (int i = 0; i < na; i++) {
-        a[i] = (rand() % 1000) - 500.0;  // Range: -500 to 499
+        a[i] = (rand() % 1000) - 500.0f;  // Range: -500 to 499
     }
 
     // Warmup

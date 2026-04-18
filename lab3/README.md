@@ -76,7 +76,7 @@ Learn how to generate and interpret vectorization reports, with focus on underst
 ### Code: vec_sin.cpp
 
 ```cpp
-#include <cmath>
+#include <math.h>
 
 void foo (float * theta, float * sth)  {
   int i;
@@ -137,14 +137,16 @@ The compiler is processing 4 floats at once (SSE/AVX depending on CPU).
 
 **Section 4: Loop Multiversioning**
 ```
-   remark #15301: LOOP WAS MULTIVERSIONED
-   remark #15450: unmasked unaligned unit stride loads: 1
-   remark #15451: unmasked unaligned unit stride stores: 1
-   remark #15475: --- begin vector cost summary ---
-   remark #15476: scalar cost: 137
-   remark #15477: vector cost: 20.250
-   remark #15478: estimated potential speedup: 6.500
-   remark #15479: lightweight early exit check: 0
+LOOP BEGIN at vec_sin.cpp (5, 3)
+<Multiversioned v1>
+    remark #25228: Loop multiversioned for Data Dependence
+...
+LOOP END
+
+LOOP BEGIN at vec_sin.cpp (5, 3)
+<Multiversioned v2>
+    remark #15615: Loop was not vectorized: not vectorizable due to data dependence, fall-back loop for multiversioning
+LOOP END
 ```
 
 **What is Loop Multiversioning?**
@@ -170,24 +172,19 @@ Now that we've identified multiversioning due to pointer aliasing, we'll show in
 
 **Section 5: Alternative Scalar Version**
 ```
-LOOP BEGIN at vec_sin.cpp(5,3)
-<Remainder loop for vectorization>
-LOOP END
-
-LOOP BEGIN at vec_sin.cpp(5,3)
-<Remainder loop for vectorization>
-LOOP END
+<Multiversioned v2>
+    remark #15615: Loop was not vectorized: not vectorizable due to data dependence, fall-back loop for multiversioning
 ```
-These are the alternative versions for edge cases.
+This is the alternative version for edge case.
 
 **1d. Understanding the Performance Estimate**
 
 From the report:
-- **Scalar cost: 137** - Estimated cycles for scalar execution
-- **Vector cost: 20.250** - Estimated cycles for vector execution  
-- **Estimated speedup: 6.5x** - Expected performance improvement
+- **Scalar cost: 48.000000** - Estimated cycles for scalar execution
+- **Vector cost: 12.062500** - Estimated cycles for vector execution  
+- **Estimated speedup: 3.968750** (approximately **~4x**) - Expected performance improvement
 
-This means the vectorized version should be ~6.5x faster than the scalar version!
+This means the vectorized version should be ~4x faster than the scalar version!
 
 **1e. Try It Online**
 
@@ -307,28 +304,15 @@ The constant `3.1415927` is a **double** (64-bit) by default in C!
 
 **The fix:** Add `f` suffix to make it a `float` constant:
 
-Create a new file `vec_sin_fixed.cpp`:
+The file `vec_sin_fixed.cpp` is already provided in this lab directory with the correct float constant:
 ```cpp
-#include <cmath>
+#include <math.h>
 
 void foo (float * theta, float * sth)  {
   int i;
   for (i = 0; i < 512; i++)
        sth[i] = sin(theta[i]+3.1415927f);  // Note the 'f' suffix!
 }
-```
-
-Or you can create it with:
-```bash
-cat > vec_sin_fixed.cpp << 'EOF'
-#include <cmath>
-
-void foo (float * theta, float * sth)  {
-  int i;
-  for (i = 0; i < 512; i++)
-       sth[i] = sin(theta[i]+3.1415927f);
-}
-EOF
 ```
 
 Now compile the fixed version (keeping `-fargument-noalias`):
@@ -342,15 +326,110 @@ icpx -g -O2 -xCORE-AVX512 -fargument-noalias -qopt-report=3 -qopt-report-file=st
 |--------|---------------------|-------------------|
 | Constant type | `double` (64-bit) | `float` (32-bit) |
 | Vector length | **4** (double precision) | **8** (single precision) |
-| Vector cost | ~20.250 cycles | ~10.000 cycles |
-| Estimated speedup | **~6.5x** | **~13.0x** |
+| Scalar cost | 48.000000 cycles | 31.000000 cycles |
+| Vector cost | 12.062500 cycles | 4.203125 cycles |
+| Estimated speedup | **~4x** | **~7.3x** |
 | Multiversioned | No (using `-fargument-noalias`) | No (using `-fargument-noalias`) |
 
-**Performance improvement: 2x faster just by adding 'f'!**
+**Performance improvement: Nearly 2x better speedup estimate (4x → 7.3x) by using proper float types!**
 
 Note: Both versions use `-fargument-noalias` to avoid multiversioning overhead, allowing us to focus on the type conversion issue.
 
-**Key lesson:** Optimization reports help you identify hidden performance problems like implicit type conversions. A simple one-character fix (`f`) doubled the vectorization efficiency!
+**Key lesson:** Optimization reports help you identify hidden performance problems like implicit type conversions. A simple one-character fix (`f`) doubled the vector width from 4 to 8 elements and improved the speedup estimate from ~4x to ~7.3x!
+
+**1h. Bonus: Comparing ICC (Classic Compiler) vs ICX**
+
+Let's see how ICC (Intel C++ Compiler Classic) handles the same code. First, switch to the ICC environment:
+
+```bash
+source setup_icc.sh
+```
+
+Now compile the original `vec_sin.cpp` with ICC:
+
+```bash
+icc -g -O2 -xHost -qopt-report=3 -qopt-report-file=stdout vec_sin.cpp -c
+```
+
+**Note:** We use `icc` (not `icpx`) for ICC. It handles both C and C++ files.
+
+**ICC Optimization Report - Key Observations:**
+
+Look for these differences in the ICC output:
+
+```
+   remark #15476: scalar cost: 111
+   remark #15477: vector cost: 20.370
+   remark #15478: estimated potential speedup: 5.440
+   remark #15482: vectorized math library calls: 1
+   remark #15487: type converts: 2
+```
+
+**ICC vs ICX Comparison:**
+
+| Aspect | ICX | ICC (Classic) |
+|--------|-----|---------------|
+| Vectorized? | ✅ Yes | ✅ Yes |
+| Multiversioned? | ✅ Yes | ✅ Yes |
+| Vector length | 4 (double precision) | 4 (double precision) |
+| Scalar cost | 48.000000 | 111 |
+| Vector cost | 12.062500 | 20.370 |
+| Speedup estimate | ~4x | ~5.4x |
+| Strategy | Runtime checks for aliasing | Runtime checks for aliasing |
+
+**Why different cost estimates?**
+- ICC and ICX use **different cost models** for estimating performance
+- ICC's classic cost model often shows higher speedup estimates
+- **Actual runtime performance** is what matters, not the estimates
+- Both compilers face the same issue: vector length 4 due to double constant
+
+Now compile the **fixed version** with ICC:
+
+```bash
+icc -g -O2 -xCORE-AVX512 -fargument-noalias -qopt-report=3 -qopt-report-file=stdout vec_sin_fixed.cpp -c
+```
+
+**ICC Fixed Version Results:**
+
+```
+LOOP BEGIN at vec_sin_fixed.cpp(5,3)
+   remark #15300: LOOP WAS VECTORIZED
+   remark #26013: Compiler has chosen to target XMM/YMM vector. Try using -qopt-zmm-usage=high to override
+   remark #15476: scalar cost: 109 
+   remark #15477: vector cost: 10.250 
+   remark #15478: estimated potential speedup: 10.610
+```
+
+**Key Observations:**
+
+1. **Vector length: 8** - Float constant enables full YMM (256-bit) register usage
+2. **No multiversioning** - Using `-fargument-noalias` eliminates it
+3. **Speedup estimate: ~10.6x** - Much higher than ICX (~7.3x) due to different cost model
+4. **Remark #26013** - ICC uses YMM (256-bit) by default even with `-xCORE-AVX512`
+   - To use 512-bit ZMM registers: add `-qopt-zmm-usage=high`
+
+**Summary: ICC vs ICX**
+
+**Similarities:**
+- Both vectorize and multiversion for pointer aliasing safety
+- Both benefit from proper type usage (adding 'f' suffix)
+- Both support `-fargument-noalias` to eliminate multiversioning
+- Both achieve **2x throughput increase** (vector length 4 → 8)
+
+**Differences:**
+- **Cost models differ**: ICC shows higher speedup estimates (5.4x, 10.6x) vs ICX (~4x, ~7.3x)
+- **Different scalar/vector costs**: ICC scalar cost is 109-111 vs ICX 31-48
+- **Improvement ratios similar**: Both show ~2x improvement with proper types (ICC: 5.4x→10.6x, ICX: 4x→7.3x)
+- **Estimates ≠ Reality**: Actual performance depends on CPU, memory bandwidth, etc.
+
+**Key Takeaway:**
+The type conversion issue (double vs float) affects **both compilers** equally. Always use matching types for optimal vectorization! Don't rely solely on speedup estimates—benchmark actual performance.
+
+**Switch back to ICX for remaining exercises:**
+
+```bash
+source setup_icx.sh
+```
 
 ### Understanding the Output
 
@@ -380,10 +459,11 @@ Note: Both versions use `-fargument-noalias` to avoid multiversioning overhead, 
 - **Loop multiversioning** creates multiple versions for safety and performance
 - **`-fargument-noalias`** eliminates multiversioning by assuming no pointer aliasing
 - **Implicit type conversions** can significantly reduce vectorization efficiency
-- **Adding 'f' suffix** to float constants avoids double-precision conversions
 - Optimization reports help identify performance bottlenecks like type mismatches
 - **Using `-xCORE-AVX512`** with proper float types: 8 elements at once (2x better than 4)
-- A simple one-character fix can double performance (6.5x → 13x speedup)
+- A simple one-character fix can double vector width (4 → 8 elements) and improve speedup from ~4x to ~7.3x
+- **ICC vs ICX**: Both compilers vectorize similarly, but use different cost models for speedup estimates
+- **Cost estimates vs reality**: Don't rely solely on compiler estimates—benchmark actual performance
 - You can experiment online at **godbolt.org**
 
 ### Questions to Consider
@@ -406,6 +486,12 @@ Note: Both versions use `-fargument-noalias` to avoid multiversioning overhead, 
 6. How can we fix the type conversion issue?
    - **Answer**: Add 'f' suffix to make it a float constant: `3.1415927f`
 
+7. Why do ICC and ICX show different speedup estimates for the same code?
+   - **Answer**: They use different internal cost models for estimating scalar and vector execution time. ICC often shows higher estimates, but actual runtime performance depends on the hardware, not the estimate.
+
+8. Should I use ICC or ICX for vectorization?
+   - **Answer**: Use ICX (the modern LLVM-based compiler). ICC is deprecated and will be removed. Both produce similar vectorized code, but ICX is actively maintained and receives new optimizations.
+
 ## Exercise 2: Architecture-Specific Optimization Flags (-m, -x, -ax)
 
 ### Goal
@@ -415,7 +501,7 @@ Understand the differences between architecture targeting options and their impa
 
 **vec_sin_fixed.cpp** (from Exercise 1 - the vectorized function):
 ```cpp
-#include <cmath>
+#include <math.h>
 
 void foo (float * theta, float * sth)  {
   int i;
@@ -490,7 +576,7 @@ icpx -O2 -mavx2 vec_sin_fixed.cpp vec_sin_main.cpp -o vec_sin_m
 **2b. Compile with -xCORE-AVX2 (Intel-only, with CPU check)**
 
 ```bash
-icpx -O2 -xCORE-AVX2 vec_sin_fixed.cpp -o vec_sin_x
+icpx -O2 -xCORE-AVX2 vec_sin_fixed.cpp vec_sin_main.cpp -o vec_sin_x
 ```
 
 **Flag meaning:**
@@ -535,15 +621,15 @@ Expected results (approximate):
 
 | Binary | Size | Versions Included | CPU Check? |
 |--------|------|------------------|------------|
-| `vec_sin_m` | ~116 KB | AVX2 only | No |
-| `vec_sin_x` | ~125 KB | AVX2 only | Yes (in main) |
-| `vec_sin_ax` | ~139 KB | SSE2 + AVX2 | Yes (CPUID) |
-| `vec_sin_ax_multi` | ~145 KB | SSE2 + AVX2 + AVX-512 | Yes (CPUID) |
+| `vec_sin_m` | ~47 KB | AVX2 only | No |
+| `vec_sin_x` | ~56 KB | AVX2 only | Yes (in main) |
+| `vec_sin_ax` | ~70 KB | SSE2 + AVX2 | Yes (CPUID) |
+| `vec_sin_ax_multi` | ~70 KB | SSE2 + AVX2 + AVX-512 | Yes (CPUID) |
 
 **Note:** 
-- `-x` is slightly larger than `-m` due to CPU check code
-- `-ax` adds baseline + optimized versions, but size increase is modest
-- Multiple auto-dispatch targets add only slightly more size
+- `-x` is ~20% larger than `-m` due to CPU check code and Intel-specific optimizations
+- `-ax` is ~50% larger than `-x`, includes baseline + optimized versions
+- Multiple auto-dispatch targets (ax_multi) have similar size to single target `-ax`
 
 **2f. Generate Assembly and Check for CPU Detection**
 
@@ -783,8 +869,8 @@ icx -O2 -xHost -qopenmp -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=
 **What changed in the report:**
 
 ```
-LOOP BEGIN at addit_omp.c(5,3)
-   remark #15301: OpenMP SIMD LOOP WAS VECTORIZED
+LOOP BEGIN at addit_omp.c(6,3)
+   remark #15301: SIMD LOOP WAS VECTORIZED
    remark #15305: vectorization support: vector length 4
 ```
 
@@ -840,7 +926,7 @@ icx -O2 -xHost -qopenmp -S addit_omp.c -o addit_icx_simd.s
 grep -E "vmov|vadd" addit_icc.s | head -5
 
 # ICX without pragma should show scalar instructions only
-grep -E "vmov|vadd" addit_icx_scalar.s | wc -l
+grep -E "vmov|vadd" addit_icx_scalar.s | head -5
 
 # ICX with pragma should show SIMD instructions
 grep -E "vmov|vadd" addit_icx_simd.s | head -5
@@ -1018,27 +1104,29 @@ void dist( int n, int nd, float pt[][MYDIM], float dis[], float ptref[]) {
 }
 ```
 
-**Three versions to compare (same source, different compilation):**
+**Three versions to compare (single source file, different macro expansions):**
+
+We use a single `dist.c` file for convenience, but the preprocessor macros (`-DUSE_OMP_SIMD`, `-DKNOWN_TRIP_COUNT`) produce different effective source code for each version.
 
 1. **Version 1**: No pragma, no known trip count
    - Compile: `icx -O2 -xHost dist.c dist_main.c`
-   - No `#pragma omp simd` (no `-DUSE_OMP_SIMD`)
-   - `MYDIM` = `nd` (variable)
+   - No `-DUSE_OMP_SIMD` → `#pragma omp simd` **not in code**
+   - No `-DKNOWN_TRIP_COUNT` → `MYDIM` = `nd` (variable)
    - Result: **Inner loop vectorized**
 
 2. **Version 2**: With pragma, unknown trip count  
    - Compile: `icx -O2 -xHost -DUSE_OMP_SIMD dist.c dist_main.c`
-   - `#pragma omp simd` is **present**
-   - `MYDIM` = `nd` (variable)
+   - `-DUSE_OMP_SIMD` → `#pragma omp simd` **present in code**
+   - No `-DKNOWN_TRIP_COUNT` → `MYDIM` = `nd` (variable)
    - Result: **Outer loop vectorized** (forced by pragma)
 
 3. **Version 3**: With pragma and known trip count
    - Compile: `icx -O2 -xHost -DUSE_OMP_SIMD -DKNOWN_TRIP_COUNT dist.c dist_known_main.c`
-   - `#pragma omp simd` is **present**
-   - `MYDIM` = `3` (constant)
+   - `-DUSE_OMP_SIMD` → `#pragma omp simd` **present in code**
+   - `-DKNOWN_TRIP_COUNT` → `MYDIM` = `3` (constant)
    - Result: **Outer loop vectorized + inner loop fully unrolled**
 
-**Key insight:** The `#pragma omp simd` is conditionally compiled - only included in versions 2 and 3.
+**Key insight:** Preprocessor macros create different effective source code from the same file. This approach keeps the code organized in one place while demonstrating different optimization strategies.
 
 ### Tasks
 
@@ -1056,23 +1144,26 @@ icx -O2 -xHost -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=stdout di
 
 **Look for in the report:**
 ```
-LOOP BEGIN at dist.c(16,5)
-   remark #15301: LOOP WAS MULTIVERSIONED
+LOOP BEGIN at dist.c (22, 5)
+<Multiversioned v1>
+    remark #15541: loop was not vectorized: outer loop is not an auto-vectorization candidate.
 
-   LOOP BEGIN at dist.c(16,5)
-      remark #15541: outer loop was not auto-vectorized: consider using SIMD directive
+    LOOP BEGIN at dist.c (25, 9)
+        remark #15300: LOOP WAS VECTORIZED
+        remark #15305: vectorization support: vector length 8
+    LOOP END
+LOOP END
 
-      LOOP BEGIN at dist.c(19,9)
-         remark #15300: LOOP WAS VECTORIZED
-      LOOP END
-   LOOP END
+LOOP BEGIN at dist.c (22, 5)
+<Multiversioned v2>
+    remark #15615: Loop was not vectorized: not vectorizable due to data dependence, fall-back loop for multiversioning
 LOOP END
 ```
 
 **What happened:**
-- ✅ **Inner loop WAS vectorized** (with multiversioning for runtime checks)
-- ❌ **Outer loop NOT vectorized** (no pragma in the code)
-- Compiler suggests SIMD directive!
+- ✅ **Inner loop WAS vectorized** (multiversioned with runtime checks)
+- ❌ **Outer loop NOT vectorized** (not an auto-vectorization candidate without pragma)
+- **Multiversioning present** due to potential data dependencies
 
 **4b. Version 2: With Pragma, Unknown Trip Count (Outer Loop Vectorized)**
 
@@ -1089,17 +1180,26 @@ icx -O2 -xHost -qopenmp -DUSE_OMP_SIMD -qopt-report=3 -qopt-report-phase=vec -qo
 
 **Look for in the report:**
 ```
-LOOP BEGIN at dist.c(16,5)
-   remark #15301: OpenMP SIMD LOOP WAS VECTORIZED
-
-   LOOP BEGIN at dist.c(19,9)
-   LOOP END
-LOOP END
+LOOP BEGIN at dist.c (20, 1)
+    remark #15569: Compiler has chosen to target XMM/YMM vector. Try using -mprefer-vector-width=512 to override.
+    remark #15301: SIMD LOOP WAS VECTORIZED
+    remark #15305: vectorization support: vector length 16
+...
+    LOOP BEGIN at dist.c (25, 9)
+        remark #15328: vectorization support: unmasked gather load: pt [ /dss/dsshome1/0F/di46loj/workshop/lab3/dist.c (26, 23) ]
+        remark #15475: --- begin vector loop cost summary ---
+        remark #15488: --- end vector loop cost summary ---
+        remark #15447: --- begin vector loop memory reference summary ---
+        remark #15462: unmasked indexed (or gather) loads: 1
+        remark #15567: Gathers are generated due to non-unit stride index of the corresponding loads.
+        remark #15474: --- end vector loop memory reference summary ---
+    LOOP END
 ```
 
 **What happened:**
 - ✅ **Outer loop WAS vectorized** (forced by pragma)
-- Inner loop is part of the vectorized computation
+- **Vector length 16** (processes 16 floats at once)
+- Inner loop (25, 9) remains as part of vectorized computation
 - No `private` clause needed - `d` and `t` are automatically private (declared inside loop)
 
 **Note about private clause:** Variables declared inside the loop body are automatically private to each SIMD lane. A `private(var)` clause would only be necessary if variables were declared outside:
@@ -1114,27 +1214,34 @@ for (int ipt=0; ipt<n; ipt++) { ... }
 Now compile with `-qopenmp`, `-DUSE_OMP_SIMD`, and `-DKNOWN_TRIP_COUNT`:
 
 ```bash
-icx -O2 -xHost -qopenmp -DUSE_OMP_SIMD -DKNOWN_TRIP_COUNT -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=stdout dist.c -c
+icx -O2 -xHost -qopenmp -DUSE_OMP_SIMD -DKNOWN_TRIP_COUNT -qopt-report=3 -qopt-report-phase=vec,loop -qopt-report-file=stdout dist.c -c
 ```
 
 **Compilation details:**
 - `-qopenmp` flag → OpenMP support enabled
 - `-DUSE_OMP_SIMD` flag → `#pragma omp simd` is **in the code**
 - `-DKNOWN_TRIP_COUNT` → `MYDIM = 3` (constant)
+- `-qopt-report-phase=vec,loop` → Show vectorization **and** loop optimization messages
 
 **Look for in the report:**
 ```
-LOOP BEGIN at dist.c(16,5)
-   remark #15301: OpenMP SIMD LOOP WAS VECTORIZED
-
-   LOOP BEGIN at dist.c(19,9)
-      remark #25015: Estimate of max trip count of loop=3
-   LOOP END
+LOOP BEGIN at dist.c (20, 1)
+...
+    remark #15301: SIMD LOOP WAS VECTORIZED
+    remark #15305: vectorization support: vector length 8
+    remark #15597: -- VLS-optimized vector load replaces 3 independent loads of stride 3
+...
+    LOOP BEGIN at dist.c (25, 9)
+        remark #25436: Loop completely unrolled by 3
+    LOOP END
 LOOP END
 ```
 
 **What happened:**
 - ✅ **OUTER LOOP WAS VECTORIZED!**
+- **Vector length 8** (processes 8 points simultaneously)
+- **VLS optimization** - compiler recognizes and optimizes the stride-3 access pattern
+- ✅ **Inner loop completely unrolled** - `remark #25436` confirms the inner loop (3 iterations) is fully unrolled
 - Inner loop recognized as having exactly 3 iterations (MYDIM=3)
 - **Inner loop fully unrolled** (no loop overhead)
 - Compiler vectorizes across outer loop iterations
@@ -1215,16 +1322,28 @@ echo "Version 3 (known trip count outer) - SIMD instructions:"
 grep -E "vmovups|vfmadd|vsqrtps" dist_v3.s | wc -l
 ```
 
-**Expected result:** Versions 2 and 3 should have more SIMD instructions, indicating outer loop vectorization
+**Expected results (approximate):**
+- **Version 1**: ~42 instructions (inner loop vectorized with multiversioning - multiple loop versions)
+- **Version 2**: ~59 instructions (outer loop vectorized with gather loads - complex memory access)
+- **Version 3**: ~14 instructions (outer loop vectorized with VLS-optimized loads - most efficient)
+
+**Key insight:** Fewer SIMD instructions doesn't mean worse performance! Version 3 has the fewest instructions because:
+- **Inner loop fully unrolled** - no loop overhead
+- **VLS-optimized loads** - compiler recognizes stride-3 pattern and uses efficient vector loads
+- **No multiversioning** - single optimized code path
+
+Version 1 has more instructions due to multiversioning (multiple loop copies). Version 2 has the most due to gather instructions for unknown stride patterns.
 
 **4g. Performance Implications**
 
 | Aspect | V1: Unknown (Inner) | V2: OMP SIMD (Outer) | V3: Known (Outer) |
 |--------|---------------------|----------------------|-------------------|
-| Inner loop vectorized | ✅ Yes (multiversioned) | Scalar | Fully unrolled |
+| Inner loop vectorized | ✅ Yes (multiversioned) | Part of outer | Fully unrolled |
 | Outer loop vectorized | ❌ No | ✅ Yes (pragma) | ✅ Yes (pragma) |
+| Vector length | 8 (inner loop) | 16 (outer loop) | 8 (outer loop) |
 | Processing strategy | SIMD per point | SIMD across points | SIMD across points |
-| Points per cycle | 1 (but faster inner) | 4-8 | 4-8 |
+| Points per cycle | 1 (but faster inner) | 16 | 8 |
+| Optimization | Multiversioned | Gather loads | VLS-optimized stride-3 |
 | Code complexity | Low | Medium (pragma) | Low (macros) |
 | Expected speedup | Baseline | 2-4x vs V1 | 2-4x vs V1 (best) |
 
@@ -1443,35 +1562,60 @@ echo "=== Version 3: With AVX-512 (512-bit ZMM) ==="
 ./bench_v3_avx512
 ```
 
-**5c. Expected Results and Analysis**
+**5c. Real-World Results and Analysis**
 
-**Expected Performance Progression:**
+**Performance Results on Intel SPR (Sapphire Rapids):**
 
-| Version | Optimization | Expected Speedup | Key Features |
-|---------|--------------|------------------|--------------|
-| V1-O1 | Baseline | 1.0x | No vectorization, scalar code |
-| V1-AVX | Inner loop SIMD | 2-4x | 256-bit YMM, 8 floats at once |
-| V2-AVX | Outer loop SIMD | 3-5x | Better than V1, but unknown stride overhead |
-| V3-AVX | Outer + unrolled | 4-6x | No inner loop overhead |
-| V3-AVX2 | V3 + FMA | 5-8x | Fused multiply-add (2 ops in 1 instruction) |
-| V3-AVX512 | V3 + 512-bit | 8-12x | 512-bit ZMM, 16 floats at once |
+| Version | Time (s) | Speedup vs Baseline | Key Features |
+|---------|----------|---------------------|--------------|
+| V1-O1 | 0.238 | **1.00x** (baseline) | No vectorization, scalar code |
+| V1-AVX | 0.168 | **1.41x** | Inner loop vectorized, unit-stride loads |
+| V2-AVX | 0.211 | **1.13x** | Outer loop vectorized, gather loads penalty |
+| V3-AVX | 0.138 | **1.72x** | Outer loop + inner unrolled, VLS-optimized |
+| V3-AVX2 | 0.115 | **2.07x** | V3 + FMA instructions, best scalar performance |
+| V3-AVX512 | 0.113 | **2.10x** | V3 + 512-bit ZMM, best overall performance |
 
-**What affects performance:**
+**Important Observations:**
 
-1. **Vectorization strategy** (inner vs outer loop)
-   - Outer loop vectorization typically better for this pattern
+1. **V1-AVX beats V2-AVX despite "simpler" strategy** 
+   - V1 (inner loop): Efficient unit-stride memory access, good cache locality
+   - V2 (outer loop): Uses **gather instructions** due to unknown stride (nd variable)
+   - **Gather loads are expensive** - V2 is only 1.13x faster vs V1's 1.41x
+   - Lesson: Vectorization strategy matters less than memory access pattern!
+
+2. **V3-AVX2 and V3-AVX512 show progressive improvement**
+   - V3-AVX (1.72x): VLS-optimized stride-3 loads, inner loop unrolled
+   - V3-AVX2 (2.07x): Adds FMA instructions, ~20% faster than V3-AVX
+   - V3-AVX512 (2.10x): Wider registers (512-bit), marginal improvement over AVX2
+   - **FMA benefits are visible** when combined with good memory access patterns
+
+3. **V3 versions consistently outperform V1 and V2**
+   - Known trip count (MYDIM=3) enables **VLS-optimized stride-3 loads**
+   - No gather instructions - efficient vector loads replace scatter/gather
+   - Inner loop fully unrolled - no loop overhead
+   - Architecture-specific features (FMA, wider registers) provide incremental gains
+
+**What affects performance (real factors):**
+
+1. **Memory access pattern** (most critical!)
+   - Unit stride (V1, V3): Fast sequential access
+   - Gather loads (V2): Slow irregular access causing 25% performance loss vs V1
+   - **VLS-optimized stride-3** (V3): Compiler recognizes pattern, enables efficient vectorization
    
-2. **Inner loop unrolling** (V3 vs V2)
-   - Eliminates loop control overhead
-   - Better instruction scheduling
+2. **Instruction set features**
+   - FMA instructions: Provide real benefit (~20% improvement) when memory access is optimized
+   - 512-bit ZMM registers: Marginal gain (1-2%) due to memory bandwidth saturation
+   - **Good memory access unlocks instruction set benefits**
+   
+3. **Loop structure optimization**
+   - Known trip counts enable inner loop unrolling (V3 beats V1/V2)
+   - Outer loop vectorization works when memory pattern is known (V3 vs V2)
+   - Inner loop vectorization safe fallback for unknown patterns (V1 vs V2)
 
-3. **FMA instructions** (AVX2)
-   - `vfmadd` = multiply + add in one instruction
-   - Halves the number of instructions for `t*t + d`
-
-4. **Register width** (AVX vs AVX-512)
-   - AVX: 256-bit YMM (8 floats)
-   - AVX-512: 512-bit ZMM (16 floats) with `-qopt-zmm-usage=high`
+4. **CPU-specific factors**
+   - Memory bandwidth becomes bottleneck with wider vectors (AVX512 only 1.5% faster than AVX2)
+   - Modern CPUs (SPR) handle FMA efficiently without frequency scaling issues
+   - Cache hierarchy affects performance at scale (100M points stress L3)
 
 **5d. Understanding the Numbers**
 
@@ -1491,26 +1635,27 @@ echo "=== Version 3: With AVX-512 (512-bit ZMM) ==="
 
 ### Key Takeaways
 
-- **Vectorization alone** (V1-AVX) gives 2-4x speedup over scalar code
-- **Outer loop vectorization** (V2-AVX) typically outperforms inner loop vectorization
-- **Known trip counts** (V3) enable full inner loop unrolling for additional speedup
-- **FMA instructions** (AVX2) provide significant benefit for multiply-add patterns
-- **512-bit registers** (AVX-512 with `-qopt-zmm-usage=high`) can double performance vs 256-bit
-- **Real-world performance** depends on: data size, memory bandwidth, CPU architecture
+- **Memory access pattern matters more than vectorization strategy** - V1-AVX (inner loop, 1.41x) beats V2-AVX (outer loop, 1.13x) due to gather load overhead
+- **Gather instructions are expensive** - V2-AVX uses gather loads for unknown stride, losing 20% performance vs unit-stride V1
+- **Known trip counts enable VLS optimization** - V3 versions use efficient stride-3 loads instead of gathers, achieving 1.72x+ speedup
+- **FMA provides real benefits with good memory patterns** - V3-AVX2 (2.07x) shows 20% gain over V3-AVX (1.72x) when combined with optimized loads
+- **Memory bandwidth limits wider vectors** - V3-AVX512 (2.10x) only 1.5% faster than V3-AVX2 (2.07x), saturation point reached
+- **Optimization strategy hierarchy**: Memory access (most critical) → Loop structure → Instruction set features
+- **Always benchmark on real hardware** - SPR results show clear performance progression when optimizations align correctly
 
 ### Questions to Consider
 
-1. Why might V3-AVX512 not show exactly 2x speedup over V3-AVX2?
-   - **Answer**: Memory bandwidth limits, frequency throttling with AVX-512, or data size not large enough
+1. **Why does V1-AVX beat V2-AVX despite "worse" vectorization strategy?**
+   - **Answer**: V1 (1.41x) uses efficient unit-stride loads with good cache locality. V2 (1.13x) uses gather instructions because compiler doesn't know stride pattern (nd is variable). Gather loads are 3-5x slower than regular loads, causing 25% performance loss relative to V1.
 
-2. What happens if you run these benchmarks on a CPU without AVX-512?
-   - **Answer**: V3-AVX512 binary won't run (Intel CPU check) or falls back to baseline
+2. **Why is V3-AVX2 faster than V3-AVX on SPR?**
+   - **Answer**: On modern Sapphire Rapids CPUs, FMA instructions provide genuine benefit (~20% speedup) when combined with optimized memory access patterns. V3-AVX2 (2.07x) improves over V3-AVX (1.72x) because VLS-optimized loads eliminate the memory bottleneck, allowing FMA throughput to matter.
 
-3. Why is FMA important for this computation?
-   - **Answer**: Pattern `d += t*t` is multiply-add, perfect for FMA instruction
+3. **Why doesn't V3-AVX512 show dramatic speedup over V3-AVX2?**
+   - **Answer**: Memory bandwidth saturation - V3-AVX512 (2.10x) is only 1.5% faster than V3-AVX2 (2.07x). Can't feed data fast enough to fully utilize 512-bit units. The workload hits memory bandwidth limits before compute limits.
 
-4. How does cache size affect these measurements?
-   - **Answer**: If data fits in cache, memory bandwidth less important; larger datasets show more realistic performance
+4. **What's the key lesson from these benchmarks?**
+   - **Answer**: Performance optimization is hierarchical - memory access patterns matter most (V1 vs V2), then loop structure (V3 vs V1), then instruction set features (AVX2/512). Advanced features only help when lower levels are optimized. Always measure on target hardware - SPR shows clear progression when optimizations align.
 
 ## Exercise 6: Special Idioms - Compress Loop Pattern
 
@@ -1522,10 +1667,10 @@ Understand how the compiler recognizes special loop patterns (idioms) and uses a
 A **compress loop** is a common pattern where you filter elements from one array into another based on a condition:
 
 ```c
-int compress(double *a, double *b, int na) {
+int compress(float *a, float *b, int na) {
     int nb = 0;
     for (int ia = 0; ia < na; ia++) {
-        if (a[ia] > 0.)
+        if (a[ia] > 0.f)
             b[nb++] = a[ia];     // Compress: only positive values
     }
     return nb;
@@ -1538,7 +1683,7 @@ int compress(double *a, double *b, int na) {
 - Traditional vectorization can't handle this pattern efficiently
 
 **The Solution:**
-- **AVX-512** provides `vcompresspd` instruction specifically for this idiom
+- **AVX-512** provides `vcompressps` instruction specifically for this idiom
 - Stores selected elements to memory based on a mask
 - Enables efficient vectorization of compress/expand patterns
 
@@ -1550,12 +1695,12 @@ int compress(double *a, double *b, int na) {
 ### Code: compress.c
 
 ```c
-int compress(double *a, double *b, int na)
+int compress(float *a, float *b, int na)
 {
     int nb = 0;
     for (int ia = 0; ia < na; ia++)
     {
-        if (a[ia] > 0.)
+        if (a[ia] > 0.f)
             b[nb++] = a[ia];
     }
     return nb;
@@ -1581,7 +1726,7 @@ icx -xCORE-AVX2 -O2 -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=stdo
 
 **Look for in the report:**
 ```
-LOOP BEGIN at compress.c(11,5)
+LOOP BEGIN at compress.c(10,5)
    remark #15344: loop was not vectorized: vector dependence prevents vectorization
    remark #15346: vector dependence: assumed OUTPUT dependence between b[nb] (13:13) and b[nb] (13:13)
 ```
@@ -1600,18 +1745,21 @@ icx -xCORE-AVX512 -O2 -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=st
 
 **Look for in the report:**
 ```
-LOOP BEGIN at compress.c(11,5)
+LOOP BEGIN at compress.c(10,5)
    remark #15300: LOOP WAS VECTORIZED
-   remark #15305: vectorization support: vector length 8
-   remark #15399: vectorization support: compress/expand
-   remark #15478: estimated potential speedup: 4.500
+   remark #15305: vectorization support: vector length 16
+...
+   remark #15478: estimated potential speedup: 3.953125
+...
+   remark #15497: vector compress: 1
+...
 ```
 
 **What happened:**
 - ✅ **LOOP WAS VECTORIZED!**
 - Compiler recognized the compress pattern
-- Uses `vcompresspd` instruction (AVX-512)
-- Vector length 8 (processes 8 doubles at once)
+- Uses `vcompressps` instruction (AVX-512)
+- Vector length 16 (processes 16 floats at once)
 
 **6c. View Assembly - AVX2 vs AVX-512**
 
@@ -1628,18 +1776,18 @@ icx -xCORE-AVX512 -O2 -S -fargument-noalias compress.c -o compress_avx512.s
 **Check for compress instruction in AVX-512:**
 ```bash
 grep "vcompress" compress_avx512.s
-# Should find: vcompresspd instruction
+# Should find: vcompressps instruction
 ```
 
 **AVX2 assembly pattern:**
-- Simple `movsd` (scalar move)
+- Simple `movss` (scalar move)
 - Conditional branches
 - Sequential processing
 
 **AVX-512 assembly pattern:**
-- `vcmppd` - vector compare (creates mask)
-- `vcompresspd` - compress doubles based on mask
-- Parallel processing of 8 elements
+- `vcmpps` - vector compare (creates mask)
+- `vcompressps` - compress floats based on mask
+- Parallel processing of 16 elements
 
 **6d. Build and Test Both Versions**
 
@@ -1659,23 +1807,30 @@ echo "=== AVX-512 (Vectorized with vcompresspd) ==="
 ./compress_avx512
 ```
 
-**Expected results:**
-- AVX-512 version should be 2-4x faster
+**Expected results on Intel SPR:**
+
+| Version | Time (s) | Throughput (M elem/s) | Speedup |
+|---------|----------|----------------------|---------|
+| AVX2 (scalar) | 0.0472 | 211.7 | 1.00x (baseline) |
+| AVX-512 (vectorized) | 0.0040 | 2511.6 | **11.9x** |
+
 - Both produce identical output (same filtered values)
-- Speedup depends on selectivity (percentage of positive values)
+- **11.9x speedup** with AVX-512 compress instruction!
+- 49.9% selectivity (roughly half the elements are positive)
+- Throughput increased from ~212 million to ~2512 million elements/second
 
-**6e. Understanding the vcompresspd Instruction**
+**6e. Understanding the vcompressps Instruction**
 
-**How vcompresspd works:**
+**How vcompressps works:**
 
 1. **Compare**: Create a mask of elements that match condition
    ```asm
-   vcmppd k1, zmm0, zmm1, 14   ; k1 = mask (a[i] > 0)
+   vcmpps k1, zmm0, zmm1, 14   ; k1 = mask (a[i] > 0)
    ```
 
 2. **Compress**: Store only selected elements contiguously
    ```asm
-   vcompresspd [b+offset]{k1}, zmm0   ; Store only masked elements
+   vcompressps [b+offset]{k1}, zmm0   ; Store only masked elements
    ```
 
 3. **Count**: Update write position based on number of selected elements
@@ -1687,24 +1842,38 @@ echo "=== AVX-512 (Vectorized with vcompresspd) ==="
 
 **Visual example (4 elements):**
 ```
-Input:  [-2.0,  3.0, -1.0,  5.0]
-Mask:   [   0,    1,    0,    1]  (positive values)
-Output: [ 3.0,  5.0]              (compressed)
+Input:  [-2.0f,  3.0f, -1.0f,  5.0f]
+Mask:   [    0,     1,     0,     1]  (positive values)
+Output: [ 3.0f,  5.0f]                (compressed)
 ```
 
 ### Performance Characteristics
 
-**Selectivity impact:**
+**Real-world results on Intel SPR (10M elements, ~50% selectivity):**
 
-| Selectivity | Elements Copied | AVX-512 Advantage |
-|-------------|-----------------|-------------------|
-| 10% positive | 10% of data | Moderate (~2x) |
-| 50% positive | 50% of data | High (~3-4x) |
-| 90% positive | 90% of data | Maximum (~4-5x) |
+- **AVX2**: 0.047s, 212 M elem/s (scalar code with branches)
+- **AVX-512**: 0.004s, 2512 M elem/s (vectorized with vcompressps)
+- **Speedup**: 11.9x faster with AVX-512!
+
+**Why such dramatic speedup?**
+
+1. **Vectorized processing**: 16 floats processed per iteration vs 1 scalar
+2. **Eliminates branches**: Mask-based selection instead of conditional jumps
+3. **Efficient memory writes**: vcompressps writes contiguously without checks
+4. **Pipeline friendly**: No branch mispredictions, better instruction throughput
+
+**Selectivity impact (estimated):**
+
+| Selectivity | Elements Copied | Expected Speedup | Why |
+|-------------|-----------------|------------------|-----|
+| 10% positive | 10% of data | ~8-10x | Less memory pressure, more compute-bound |
+| 50% positive | 50% of data | **~12x** (measured) | Balanced compute/memory |
+| 90% positive | 90% of data | ~10-15x | More memory writes, but still highly efficient |
 
 **Why selectivity matters:**
-- Lower selectivity → less memory writing → memory bandwidth less important
-- Higher selectivity → more memory writing → vectorization advantage increases
+- Lower selectivity → fewer writes → less memory bandwidth needed → compute advantage dominates
+- Higher selectivity → more writes → memory bandwidth matters more → still fast due to efficient vcompressps
+- **Branch prediction** in scalar code suffers most at ~50% selectivity (worst case for branches)
 
 ### Other Special Idioms in AVX-512
 
@@ -1721,19 +1890,21 @@ AVX-512 includes instructions for several special patterns:
 
 - **Compress/expand loop patterns** are recognized as special idioms by the compiler
 - **AVX2 and earlier** cannot efficiently vectorize these patterns (no specialized instructions)
-- **AVX-512** provides `vcompresspd`/`vcompressps` for efficient vectorization
+- **AVX-512** provides `vcompressps`/`vcompresspd` for efficient vectorization
 - The compiler **automatically recognizes** the pattern and uses the right instruction
-- **Pattern recognition** requires specific code structure (if statement with increment)
-- **Speedup depends on selectivity** (percentage of elements that pass the filter)
+- **Dramatic speedup on SPR**: 11.9x faster (0.047s → 0.004s) at 50% selectivity
+- **Eliminates branch mispredictions**: Mask-based processing instead of conditional jumps
+- **Pattern recognition** requires specific code structure (if statement with post-increment)
 - **No code changes needed** - same source works optimally with AVX-512
 - This demonstrates **architecture-specific** vectorization capabilities
+- **Most dramatic benefit** among all exercises - compress is a perfect match for AVX-512
 
 ### Questions to Consider
 
 1. Why can't AVX2 efficiently vectorize the compress pattern?
    - **Answer**: AVX2 lacks specialized compress/expand instructions; would need expensive gather/scatter operations
 
-2. What makes vcompresspd special?
+2. What makes vcompressps special?
    - **Answer**: It can store selected vector elements contiguously in memory based on a mask, exactly what compress pattern needs
 
 3. Would this pattern vectorize with OpenMP SIMD pragma on AVX2?
@@ -1744,6 +1915,9 @@ AVX-512 includes instructions for several special patterns:
 
 5. How does the compiler recognize this as a compress pattern?
    - **Answer**: Looks for specific structure: loop with conditional, post-increment write index, dependent on condition
+
+6. Why is the speedup so much higher (11.9x) than other exercises?
+   - **Answer**: Compress pattern perfectly matches AVX-512 capabilities. Eliminates all branch mispredictions (huge cost at 50% selectivity), processes 16 elements in parallel, and vcompressps is highly optimized for this exact use case. Other exercises are memory-bound; compress is branch/compute-bound where AVX-512 excels.
 
 ## Running the Lab
 
@@ -1995,13 +2169,16 @@ icx -xCORE-AVX512 -O2 -fargument-noalias compress.c compress_main.c -o compress_
 5. ✅ Eliminate multiversioning with `-fargument-noalias`
 6. ✅ Identify performance issues from vector length analysis
 7. ✅ Fix implicit type conversions that limit vectorization
-8. ✅ Use Compiler Explorer for online experimentation
+8. ✅ Compare ICC (Classic) vs ICX (modern LLVM-based) compilers
+9. ✅ Use Compiler Explorer for online experimentation
 
 **Key insights from Exercise 1:** 
-- The compiler created multiple versions of the loop and estimated a **6.5x speedup** through vectorization, processing **4 floats at once** instead of one at a time.
+- The compiler created multiple versions of the loop and estimated a **~4x speedup** through vectorization, processing **4 floats at once** instead of one at a time.
 - Using **`-fargument-noalias`** eliminates multiversioning by telling the compiler that pointer arguments don't overlap, producing more efficient code when this assumption is safe.
-- **Implicit type conversions** (double constant with float arrays) can cut vectorization efficiency in half.
-- Optimization reports reveal hidden performance problems - adding a single **'f'** character doubled the speedup from **6.5x to 13x**.
+- **Implicit type conversions** (double constant with float arrays) can reduce vector width by half.
+- Optimization reports reveal hidden performance problems - adding a single **'f'** character doubled the vector width from **4 to 8 elements** and improved speedup from **~4x to ~7.3x**.
+- **ICC vs ICX**: Both compilers vectorize similarly and both benefit from proper type usage, but they use different cost models resulting in different speedup estimates (ICC: ~5.4x→10.6x, ICX: ~4x→7.3x). Both show ~2x improvement with proper float types.
+- **Compiler estimates ≠ actual performance**: Don't rely solely on speedup estimates—always benchmark on real hardware.
 - Always match constant types to your data types in performance-critical code!
 
 **Exercise 2 - What you learned:**

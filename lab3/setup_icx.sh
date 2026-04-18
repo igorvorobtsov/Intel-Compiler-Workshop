@@ -2,6 +2,7 @@
 # Setup script for ICX (Intel oneAPI DPC++/C++ Compiler)
 
 echo "Setting up ICX environment..."
+module unload intel 2>/dev/null || true
 module switch stack stack/24.6.0
 module load intel/2025.3.0
 
