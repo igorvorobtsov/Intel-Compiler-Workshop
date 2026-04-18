@@ -622,9 +622,9 @@ Expected results (approximate, make sure you use ICX 2025.3):
 | Binary | Size | Versions Included | CPU Check? |
 |--------|------|------------------|------------|
 | `vec_sin_m` | ~47 KB | AVX2 only | No |
-| `vec_sin_x` | ~56 KB | AVX2 only | Yes (in main) |
-| `vec_sin_ax` | ~70 KB | SSE2 + AVX2 | Yes (CPUID) |
-| `vec_sin_ax_multi` | ~70 KB | SSE2 + AVX2 + AVX-512 | Yes (CPUID) |
+| `vec_sin_x` | ~56 KB | AVX2 only | Yes |
+| `vec_sin_ax` | ~70 KB | SSE2 + AVX2 | Yes ) |
+| `vec_sin_ax_multi` | ~70 KB | SSE2 + AVX2 + AVX-512 | Yes |
 
 **Note:** 
 - `-x` is ~20% larger than `-m` due to CPU check code and Intel-specific optimizations
@@ -639,10 +639,10 @@ Generate assembly with `-S` option to examine CPU check mechanisms:
 # -mavx2: No CPU check
 icpx -O2 -mavx2 -S vec_sin_main.cpp -o vec_sin_m.s
 
-# -x: Adds CPU check to main
+# -x: Adds CPU check
 icpx -O2 -xCORE-AVX2 -S vec_sin_main.cpp -o vec_sin_x.s
 
-# -ax: Uses CPUID for dispatch
+# -ax: Adds CPU check
 icpx -O2 -axCORE-AVX2 -S vec_sin_main.cpp -o vec_sin_ax.s
 ```
 
@@ -675,8 +675,8 @@ grep "__intel_new_feature_proc_init" vec_sin_ax.s
 | Flag | CPU Check Function | What Happens on Old CPU |
 |------|-------------------|-------------------------|
 | `-mavx2` | **None** (no `__intel_new_feature_proc_init`) | **Crashes** with "Illegal Instruction" |
-| `-x` | **Yes** (`__intel_new_feature_proc_init` in main) | **Exits gracefully** with message |
-| `-ax` | **Yes** (`__intel_new_feature_proc_init` + CPUID) | **Runs baseline version** (SSE2) |
+| `-x` | **Yes** (`__intel_new_feature_proc_init`) | **Exits gracefully** with message |
+| `-ax` | **Yes** (`__intel_new_feature_proc_init`) | **Runs baseline version** (SSE2) |
 
 **2g. Test Runtime Behavior**
 
@@ -812,11 +812,15 @@ icc -O2 -xHost -qopt-report=3 -qopt-report-phase=vec -qopt-report-file=stdout ad
 
 ```
 LOOP BEGIN at addit.c(4,3)
+<Multiversioned v1>
    remark #15300: LOOP WAS VECTORIZED
-   remark #15301: LOOP WAS MULTIVERSIONED
-   remark #15450: unmasked unaligned unit stride loads: 2
-   remark #15451: unmasked unaligned unit stride stores: 1
-   remark #25015: Estimate of max trip count of loop=256
+...
+LOOP END
+
+LOOP BEGIN at addit.c(4,3)
+<Multiversioned v2>
+   remark #15304: loop was not vectorized: non-vectorizable loop instance from multiversioning
+LOOP END
 ```
 
 **ICC's approach:**
