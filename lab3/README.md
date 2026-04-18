@@ -553,8 +553,8 @@ Intel compilers provide three main ways to target specific CPU architectures:
 | Flag | Name | Purpose | Optimizations | CPU Check | Crash on Old CPU? |
 |------|------|---------|---------------|-----------|-------------------|
 | **`-m`** | GCC-compatible | Generic SIMD | Both Intel & non-Intel | No | ✅ Yes (Illegal Instruction) |
-| **`-x`** | Intel-specific | Intel-optimized | Intel processor-specific | Yes (in main) | ❌ No (won't start) |
-| **`-ax`** | Auto-dispatch | Multi-version | Intel-optimized versions | Yes (CPUID) | ❌ No (selects baseline) |
+| **`-x`** | Intel-specific | Intel-optimized | Intel processor-specific | Yes | ❌ No (won't start) |
+| **`-ax`** | Auto-dispatch | Multi-version | Intel-optimized versions | Yes | ❌ No (selects baseline) |
 
 ### Tasks
 
@@ -617,7 +617,7 @@ icpx -O2 -axCORE-AVX2,CORE-AVX512 vec_sin_fixed.cpp vec_sin_main.cpp -o vec_sin_
 ls -lh vec_sin_m vec_sin_x vec_sin_ax vec_sin_ax_multi
 ```
 
-Expected results (approximate):
+Expected results (approximate, make sure you use ICX 2025.3):
 
 | Binary | Size | Versions Included | CPU Check? |
 |--------|------|------------------|------------|
@@ -661,11 +661,11 @@ This is Intel's CPU feature detection function that:
 grep "__intel_new_feature_proc_init" vec_sin_m.s
 # Output: (empty - no CPU checks)
 
-# With -x: Feature initialization call added to main()
+# With -x: Feature initialization call added 
 grep "__intel_new_feature_proc_init" vec_sin_x.s
 # Output: callq __intel_new_feature_proc_init@PLT
 
-# With -ax: Feature initialization call for runtime dispatch
+# With -ax: Feature initialization call added for runtime dispatch
 grep "__intel_new_feature_proc_init" vec_sin_ax.s
 # Output: callq __intel_new_feature_proc_init@PLT
 ```
@@ -694,7 +694,7 @@ grep "__intel_new_feature_proc_init" vec_sin_ax.s
 | **Code versions** | One | One | Multiple (baseline + optimized) |
 | **Binary size** | Smallest | Smallest | Slightly larger |
 | **Optimizations** | Generic (Intel + AMD) | Intel-specific | Intel-specific |
-| **CPU check** | None | Yes (in main) | Yes (CPUID) |
+| **CPU check** | None | Yes | Yes |
 | **`__intel_new_feature_proc_init`** | ❌ No | ✅ Yes | ✅ Yes |
 | **Runtime overhead** | None | Startup check | First call check (minimal) |
 | **Portability** | Target CPU only | Target CPU only | Runs on older CPUs too |
@@ -726,12 +726,12 @@ grep "__intel_new_feature_proc_init" vec_sin_ax.s
 - ✅ Distributing software to users with different CPUs
 - ✅ Need compatibility + performance
 - ✅ Don't know target CPU in advance
-- ❌ Slightly larger binaries acceptable
+- ❌ Larger binaries
 
 **Use multiple `-ax` targets:**
 - ✅ Supporting wide range of CPUs (servers + workstations)
 - ✅ Want optimal performance on each
-- ✅ Size increase is minimal (only slightly larger than single `-ax`)
+
 
 ### Questions to Consider
 
